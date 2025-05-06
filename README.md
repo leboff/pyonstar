@@ -70,6 +70,25 @@ if __name__ == "__main__":
 
 MIT License - See LICENSE file for details
 
+## Running Tests
+
+This project uses pytest for testing. To run the tests:
+
+1. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+2. Run tests:
+   ```bash
+   pytest
+   ```
+
+3. Run tests with coverage:
+   ```bash
+   pytest --cov=onstar
+   ```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
