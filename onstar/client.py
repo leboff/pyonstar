@@ -167,6 +167,10 @@ class OnStar:
         self._check_request_status = check_request_status
         self._request_polling_timeout_seconds = request_polling_timeout_seconds
         self._request_polling_interval_seconds = request_polling_interval_seconds
+        
+        # Store available commands
+        self._available_commands: Dict[str, Dict[str, Any]] = {}
+        self._vehicle_data: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -326,6 +330,7 @@ class OnStar:
                 
                 response.raise_for_status()
                 response_data = response.json()
+                logger.debug("Response data: %s", response_data)
 
                 # Handle command status polling if enabled and not already a status check
                 should_check_status = check_request_status if check_request_status is not None else self._check_request_status
@@ -383,16 +388,59 @@ class OnStar:
     # ------------------------------------------------------------------
 
     async def get_account_vehicles(self) -> Dict[str, Any]:
-        """Return JSON payload of vehicles associated with the account."""
-        return await self._api_request("GET", "/account/vehicles")
+        """Get all vehicles associated with the account."""
+        response = await self._api_request("GET", "/account/vehicles?includeCommands=true&includeEntitlements=true&includeModules=true")
+        
+        # Parse and store available commands for the current VIN
+        if response and "vehicles" in response and "vehicle" in response["vehicles"]:
+            for vehicle in response["vehicles"]["vehicle"]:
+                if vehicle.get("vin") == self._vin and "commands" in vehicle and "command" in vehicle["commands"]:
+                    # Store the full vehicle data
+                    self._vehicle_data = vehicle
+                    
+                    # Process commands
+                    commands = {}
+                    for cmd in vehicle["commands"]["command"]:
+                        if "name" in cmd and "url" in cmd:
+                            commands[cmd["name"]] = cmd
+                    
+                    self._available_commands = commands
+                    logger.debug(f"Stored {len(commands)} available commands for VIN {self._vin}")
+        
+        return response
+
+    def _get_command_url(self, command_name: str) -> str:
+        """Get the URL for a specific command from the available commands."""
+        if command_name in self._available_commands:
+            return self._available_commands[command_name]["url"]
+        
+        # Fallback to hardcoded paths if command not found
+        logger.warning(f"Command '{command_name}' not found in available commands, using fallback URL")
+        return f"{API_BASE}/account/vehicles/{self._vin}/commands/{command_name}"
+    
+    def is_command_available(self, command_name: str) -> bool:
+        """Check if a specific command is available for the vehicle."""
+        return command_name in self._available_commands
+    
+    def get_command_data(self, command_name: str) -> Dict[str, Any]:
+        """Get additional data for a specific command."""
+        if command_name in self._available_commands:
+            return self._available_commands[command_name]
+        return {}
+        
+    def requires_privileged_session(self, command_name: str) -> bool:
+        """Check if a command requires a privileged session."""
+        if command_name in self._available_commands:
+            return self._available_commands[command_name].get("isPrivSessionRequired", "false") == "true"
+        return False
 
     async def start(self) -> Dict[str, Any]:
         """Start the vehicle."""
-        return await self._api_request("POST", f"/account/vehicles/{self._vin}/commands/start")
+        return await self._api_request("POST", self._get_command_url("start"))
 
     async def cancel_start(self) -> Dict[str, Any]:
         """Cancel the start command."""
-        return await self._api_request("POST", f"/account/vehicles/{self._vin}/commands/cancelStart")
+        return await self._api_request("POST", self._get_command_url("cancelStart"))
 
     async def lock_door(self, options: DoorRequestOptions = None) -> Dict[str, Any]:
         """Lock the vehicle doors.
@@ -410,7 +458,7 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/lockDoor",
+            self._get_command_url("lockDoor"),
             json_body=body
         )
 
@@ -430,7 +478,7 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/unlockDoor",
+            self._get_command_url("unlockDoor"),
             json_body=body
         )
 
@@ -450,7 +498,7 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/lockTrunk",
+            self._get_command_url("lockTrunk"),
             json_body=body
         )
 
@@ -470,7 +518,7 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/unlockTrunk",
+            self._get_command_url("unlockTrunk"),
             json_body=body
         )
 
@@ -496,13 +544,13 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/alert",
+            self._get_command_url("alert"),
             json_body=body
         )
 
     async def cancel_alert(self) -> Dict[str, Any]:
         """Cancel the alert command."""
-        return await self._api_request("POST", f"/account/vehicles/{self._vin}/commands/cancelAlert")
+        return await self._api_request("POST", self._get_command_url("cancelAlert"))
 
     async def charge_override(self, options: ChargeOverrideOptions = None) -> Dict[str, Any]:
         """Override vehicle charging settings.
@@ -520,7 +568,7 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/chargeOverride",
+            self._get_command_url("chargeOverride"),
             json_body=body
         )
 
@@ -528,7 +576,7 @@ class OnStar:
         """Get the vehicle charging profile."""
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/getChargingProfile"
+            self._get_command_url("getChargingProfile")
         )
 
     async def set_charging_profile(self, options: SetChargingProfileRequestOptions = None) -> Dict[str, Any]:
@@ -548,78 +596,99 @@ class OnStar:
         }
         return await self._api_request(
             "POST", 
-            f"/account/vehicles/{self._vin}/commands/setChargingProfile",
+            self._get_command_url("setChargingProfile"),
             json_body=body
         )
 
-    async def diagnostics(self, options: DiagnosticsRequestOptions = None) -> Dict[str, Any]:
-        """Get vehicle diagnostics.
+    async def get_charger_power_level(self) -> Dict[str, Any]:
+        """Get the vehicle's charger power level."""
+        return await self._api_request("POST", self._get_command_url("getChargerPowerLevel"))
+        
+    async def location(self) -> Dict[str, Any]:
+        """Get the vehicle's current location."""
+        return await self._api_request("POST", self._get_command_url("location"))
+
+    def get_vehicle_data(self) -> Dict[str, Any]:
+        """Get the full vehicle data that was retrieved during get_account_vehicles."""
+        if not self._vehicle_data:
+            logger.warning("Vehicle data not available. Call get_account_vehicles() first.")
+            return {}
+        return self._vehicle_data
+    
+    def get_entitlements(self) -> List[Dict[str, Any]]:
+        """Get the list of entitlements for the vehicle."""
+        if not self._vehicle_data or "entitlements" not in self._vehicle_data:
+            logger.warning("Entitlements not available. Call get_account_vehicles() first.")
+            return []
+        
+        if "entitlement" in self._vehicle_data["entitlements"]:
+            return self._vehicle_data["entitlements"]["entitlement"]
+        return []
+    
+    def is_entitled(self, entitlement_id: str) -> bool:
+        """Check if the vehicle is entitled to a specific feature."""
+        entitlements = self.get_entitlements()
+        for entitlement in entitlements:
+            if entitlement.get("id") == entitlement_id and entitlement.get("eligible") == "true":
+                return True
+        return False
+
+    def get_supported_hvac_settings(self) -> Dict[str, Any]:
+        """Get the supported HVAC settings for the vehicle."""
+        if not self._available_commands or "setHvacSettings" not in self._available_commands:
+            logger.warning("HVAC settings command not available. Call get_account_vehicles() first.")
+            return {}
+        
+        hvac_command = self._available_commands["setHvacSettings"]
+        if "commandData" in hvac_command and "supportedHvacData" in hvac_command["commandData"]:
+            return hvac_command["commandData"]["supportedHvacData"]
+        return {}
+        
+    async def set_hvac_settings(self, ac_mode: str = None, heated_steering_wheel: bool = None) -> Dict[str, Any]:
+        """Set HVAC settings for the vehicle.
+        
+        This method uses dynamic capabilities data to validate parameters.
         
         Parameters
         ----------
-        options
-            Optional parameters for the diagnostics command
+        ac_mode
+            AC climate mode setting (e.g., "AC_NORM_ACTIVE")
+        heated_steering_wheel
+            Whether to enable heated steering wheel
         """
-        # Try with original UPPERCASE value
-        body = {
-            "diagnosticsRequest": {
-                "diagnosticItem": [
-                    "ODOMETER"
-                ]
-            }
-        }
+        if not self.is_command_available("setHvacSettings"):
+            logger.error("setHvacSettings command not available for this vehicle")
+            raise ValueError("setHvacSettings command not available for this vehicle")
         
-        # Handle any additional options if provided
-        if options and "diagnostic_item" in options:
-            items = options["diagnostic_item"]
-            diagnostic_items = []
-            for item in items:
-                if isinstance(item, DiagnosticRequestItem):
-                    diagnostic_items.append(item.value)
-                else:
-                    diagnostic_items.append(item)
-            body["diagnosticsRequest"]["diagnosticItem"] = diagnostic_items
+        # Get supported settings to validate inputs
+        supported_settings = self.get_supported_hvac_settings()
         
-        # Log the exact request we're sending
-        logger.debug("Diagnostics request body: %s", json.dumps(body, indent=2))
+        # Build request body
+        body = {"hvacSettings": {}}
         
-        # Introduce a small delay before the request
-        # This can help with "duplicate request" issues
-        await asyncio.sleep(1.0)
+        # Add AC climate mode if provided and supported
+        if ac_mode is not None:
+            supported_modes = []
+            if "supportedAcClimateModeSettings" in supported_settings:
+                supported_modes = supported_settings["supportedAcClimateModeSettings"].get("supportedAcClimateModeSetting", [])
             
-        try:
-            return await self._api_request(
-                "POST", 
-                f"/account/vehicles/{self._vin}/commands/diagnostics",
-                json_body=body,
-                max_retries=3,
-                retry_delay=5.0
-            )
-        except httpx.HTTPStatusError as e:
-            # Extract error information if possible
-            try:
-                error_data = e.response.json()
-                error_code = error_data.get("error", {}).get("code")
-                error_desc = error_data.get("error", {}).get("description", "")
-                
-                # Special handling for certain error codes
-                if error_code == "ONS-300" and "Duplicate vehicle request" in error_desc:
-                    logger.warning("Received duplicate request error, this is expected. The request may still have been processed.")
-                    # Return a constructed response for the client
-                    return {
-                        "status": "pending",
-                        "message": "Request sent to vehicle. Status pending due to duplicate request limitation.",
-                        "commandId": None
-                    }
-            except Exception:
-                pass
-            
-            # Re-raise the original error if no special handling applied
-            raise
-
-    async def location(self) -> Dict[str, Any]:
-        """Get the vehicle location."""
+            if supported_modes and ac_mode in supported_modes:
+                body["hvacSettings"]["acClimateSetting"] = ac_mode
+            else:
+                supported_str = ", ".join(supported_modes) if supported_modes else "none"
+                logger.warning(f"Unsupported AC climate mode: {ac_mode}. Supported modes: {supported_str}")
+        
+        # Add heated steering wheel if provided and supported
+        if heated_steering_wheel is not None:
+            is_supported = supported_settings.get("heatedSteeringWheelSupported", "false") == "true"
+            if is_supported:
+                body["hvacSettings"]["heatedSteeringWheelEnabled"] = "true" if heated_steering_wheel else "false"
+            else:
+                logger.warning("Heated steering wheel not supported by this vehicle")
+        
+        # Make the request
         return await self._api_request(
-            "POST", 
-            f"/account/vehicles/{self._vin}/commands/location"
+            "POST",
+            self._get_command_url("setHvacSettings"),
+            json_body=body
         ) 
