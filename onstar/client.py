@@ -246,9 +246,8 @@ class OnStar:
         """Ensure a valid token is available, refreshing if necessary."""
         if self._needs_token_refresh(self._token_resp):
             logger.debug("Retrieving new GM auth token…")
-            # blocking – run in executor
-            res = await asyncio.to_thread(
-                get_gm_api_jwt,
+            # Use the async get_gm_api_jwt function
+            res = await get_gm_api_jwt(
                 self._auth.config,  # Pass GMAuth's config directly
                 self._auth.config.get("debug", False), 
             )

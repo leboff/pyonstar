@@ -1,4 +1,4 @@
-requests>=2.31.0
+httpx>=0.24.0
 pyjwt>=2.8.0
 python-dotenv>=1.0.0
 uuid>=1.30

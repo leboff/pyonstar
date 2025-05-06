@@ -8,10 +8,9 @@ setup(
     author_email="leboff@gmail.com",
     packages=find_packages(),
     install_requires=[
-        "requests>=2.31.0",
+        "httpx>=0.24.0",
         "pyjwt>=2.8.0",
         "pyotp>=2.9.0",
-        "httpx",
     ],
     python_requires=">=3.8",
     classifiers=[
