@@ -100,7 +100,7 @@ class SetChargingProfileRequestOptions(TypedDict, total=False):
 
 class DiagnosticsRequestOptions(TypedDict, total=False):
     """Diagnostics request options."""
-    diagnostic_item: List[DiagnosticRequestItem]
+    diagnostic_item: List[str]
 
 
 class OnStar:
@@ -436,11 +436,11 @@ class OnStar:
 
     async def start(self) -> Dict[str, Any]:
         """Start the vehicle."""
-        return await self._api_request("POST", self._get_command_url("start"))
+        return await self.execute_command("start")
 
     async def cancel_start(self) -> Dict[str, Any]:
         """Cancel the start command."""
-        return await self._api_request("POST", self._get_command_url("cancelStart"))
+        return await self.execute_command("cancelStart")
 
     async def lock_door(self, options: DoorRequestOptions = None) -> Dict[str, Any]:
         """Lock the vehicle doors.
@@ -456,11 +456,7 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("lockDoor"),
-            json_body=body
-        )
+        return await self.execute_command("lockDoor", body)
 
     async def unlock_door(self, options: DoorRequestOptions = None) -> Dict[str, Any]:
         """Unlock the vehicle doors.
@@ -476,11 +472,7 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("unlockDoor"),
-            json_body=body
-        )
+        return await self.execute_command("unlockDoor", body)
 
     async def lock_trunk(self, options: TrunkRequestOptions = None) -> Dict[str, Any]:
         """Lock the vehicle trunk.
@@ -496,11 +488,7 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("lockTrunk"),
-            json_body=body
-        )
+        return await self.execute_command("lockTrunk", body)
 
     async def unlock_trunk(self, options: TrunkRequestOptions = None) -> Dict[str, Any]:
         """Unlock the vehicle trunk.
@@ -516,11 +504,7 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("unlockTrunk"),
-            json_body=body
-        )
+        return await self.execute_command("unlockTrunk", body)
 
     async def alert(self, options: AlertRequestOptions = None) -> Dict[str, Any]:
         """Trigger the vehicle alert (honk/flash).
@@ -542,15 +526,11 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("alert"),
-            json_body=body
-        )
+        return await self.execute_command("alert", body)
 
     async def cancel_alert(self) -> Dict[str, Any]:
         """Cancel the alert command."""
-        return await self._api_request("POST", self._get_command_url("cancelAlert"))
+        return await self.execute_command("cancelAlert")
 
     async def charge_override(self, options: ChargeOverrideOptions = None) -> Dict[str, Any]:
         """Override vehicle charging settings.
@@ -566,18 +546,11 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("chargeOverride"),
-            json_body=body
-        )
+        return await self.execute_command("chargeOverride", body)
 
     async def get_charging_profile(self) -> Dict[str, Any]:
         """Get the vehicle charging profile."""
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("getChargingProfile")
-        )
+        return await self.execute_command("getChargingProfile")
 
     async def set_charging_profile(self, options: SetChargingProfileRequestOptions = None) -> Dict[str, Any]:
         """Set the vehicle charging profile.
@@ -594,19 +567,79 @@ class OnStar:
                 **(options or {})
             }
         }
-        return await self._api_request(
-            "POST", 
-            self._get_command_url("setChargingProfile"),
-            json_body=body
-        )
+        return await self.execute_command("setChargingProfile", body)
 
     async def get_charger_power_level(self) -> Dict[str, Any]:
         """Get the vehicle's charger power level."""
-        return await self._api_request("POST", self._get_command_url("getChargerPowerLevel"))
+        return await self.execute_command("getChargerPowerLevel")
+        
+    async def diagnostics(self, options: DiagnosticsRequestOptions = None) -> Dict[str, Any]:
+        """Get diagnostic data from the vehicle.
+        
+        By default, this method will retrieve all supported diagnostic items.
+        You can request specific items by providing them in the options.
+        
+        Parameters
+        ----------
+        options
+            Optional parameters for the diagnostics command:
+            - diagnostic_item: List of specific diagnostic items to request
+        
+        Returns
+        -------
+        Dict[str, Any]
+            The diagnostics response
+            
+        Raises
+        ------
+        ValueError
+            If requested diagnostic items are not supported
+        """
+        if not self.is_command_available("diagnostics"):
+            logger.error("Diagnostics command not available for this vehicle")
+            raise ValueError("Diagnostics command not available for this vehicle")
+            
+        # Get supported diagnostics from command data
+        command_data = self.get_command_data("diagnostics")
+        supported_diagnostics = []
+        
+        if (command_data and "supportedDiagnostics" in command_data and 
+                "supportedDiagnostic" in command_data["supportedDiagnostics"]):
+            supported_diagnostics = command_data["supportedDiagnostics"]["supportedDiagnostic"]
+        
+        if not supported_diagnostics:
+            logger.warning("No supported diagnostics found for this vehicle")
+            
+        # Process requested diagnostic items
+        requested_items = None
+        if options and "diagnostic_item" in options:
+            requested_items = options["diagnostic_item"]
+            
+            # Validate that requested items are supported
+            unsupported = [item for item in requested_items if item not in supported_diagnostics]
+            if unsupported:
+                logger.warning(f"Requested unsupported diagnostic items: {unsupported}")
+                logger.warning(f"Supported items: {supported_diagnostics}")
+                
+            # Filter to only include supported items
+            requested_items = [item for item in requested_items if item in supported_diagnostics]
+            
+            if not requested_items:
+                logger.error("None of the requested diagnostic items are supported")
+                raise ValueError("None of the requested diagnostic items are supported")
+        
+        # Build request body - if no specific items requested, get all supported items
+        body = {
+            "diagnosticsRequest": {
+                "diagnosticItem": requested_items if requested_items else supported_diagnostics
+            }
+        }
+        
+        return await self.execute_command("diagnostics", body)
         
     async def location(self) -> Dict[str, Any]:
         """Get the vehicle's current location."""
-        return await self._api_request("POST", self._get_command_url("location"))
+        return await self.execute_command("location")
 
     def get_vehicle_data(self) -> Dict[str, Any]:
         """Get the full vehicle data that was retrieved during get_account_vehicles."""
@@ -643,6 +676,39 @@ class OnStar:
         if "commandData" in hvac_command and "supportedHvacData" in hvac_command["commandData"]:
             return hvac_command["commandData"]["supportedHvacData"]
         return {}
+        
+    async def execute_command(self, command_name: str, request_body: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Execute any available command discovered from the API.
+        
+        This generic method allows executing any command available for the vehicle,
+        even if not explicitly implemented as a method in this client.
+        
+        Parameters
+        ----------
+        command_name
+            The name of the command to execute (must be in the available commands)
+        request_body
+            Optional JSON body to send with the request
+            
+        Returns
+        -------
+        Dict[str, Any]
+            The command response
+            
+        Raises
+        ------
+        ValueError
+            If the command is not available for this vehicle
+        """
+        if not self.is_command_available(command_name):
+            logger.error(f"Command '{command_name}' not available for this vehicle")
+            raise ValueError(f"Command '{command_name}' not available for this vehicle")
+        
+        return await self._api_request(
+            "POST",
+            self._get_command_url(command_name),
+            json_body=request_body
+        )
         
     async def set_hvac_settings(self, ac_mode: str = None, heated_steering_wheel: bool = None) -> Dict[str, Any]:
         """Set HVAC settings for the vehicle.
@@ -687,8 +753,4 @@ class OnStar:
                 logger.warning("Heated steering wheel not supported by this vehicle")
         
         # Make the request
-        return await self._api_request(
-            "POST",
-            self._get_command_url("setHvacSettings"),
-            json_body=body
-        ) 
+        return await self.execute_command("setHvacSettings", body) 
