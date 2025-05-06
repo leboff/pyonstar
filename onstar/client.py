@@ -1,134 +1,26 @@
-"""Minimal asynchronous OnStar client built around :pyclass:`onstar.auth.GMAuth`.
-
-Only the *get_account_vehicles* endpoint is implemented for demonstration
-purposes.  It is straightforward to add additional endpoints using the generic
-``_api_request`` helper.
-"""
+"""Async OnStar client that uses the GM Auth API."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional, Literal, cast, List, TypedDict
-from enum import Enum, auto
-import json
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional, cast
 
-import httpx
-
-from .auth import GMAuth, DecodedPayload, get_gm_api_jwt
+from .api import OnStarAPIClient
+from .auth import GMAuth, get_gm_api_jwt, DecodedPayload
+from .commands import CommandFactory
+from .types import (
+    AlertRequestOptions,
+    ChargeOverrideOptions,
+    DiagnosticsRequestOptions,
+    DoorRequestOptions,
+    SetChargingProfileRequestOptions,
+    TrunkRequestOptions,
+)
 
 __all__ = ["OnStar"]
 
-
-API_BASE = "https://na-mobile-api.gm.com/api/v1"
 TOKEN_REFRESH_WINDOW_SECONDS = 5 * 60
 logger = logging.getLogger(__name__)
-
-
-class CommandResponseStatus(Enum):
-    """Command response status values."""
-    SUCCESS = "success"
-    FAILURE = "failure"
-    IN_PROGRESS = "inProgress"
-    PENDING = "pending"
-
-
-class AlertRequestAction(Enum):
-    """Alert request actions."""
-    HONK = "Honk"
-    FLASH = "Flash"
-
-
-class AlertRequestOverride(Enum):
-    """Alert request overrides."""
-    DOOR_OPEN = "DoorOpen"
-    IGNITION_ON = "IgnitionOn"
-
-
-class ChargeOverrideMode(Enum):
-    """Charge override modes."""
-    CHARGE_NOW = "CHARGE_NOW"
-    CANCEL_OVERRIDE = "CANCEL_OVERRIDE"
-
-
-class ChargingProfileChargeMode(Enum):
-    """Charging profile charge modes."""
-    DEFAULT_IMMEDIATE = "DEFAULT_IMMEDIATE"
-    IMMEDIATE = "IMMEDIATE"
-    DEPARTURE_BASED = "DEPARTURE_BASED"
-    RATE_BASED = "RATE_BASED"
-    PHEV_AFTER_MIDNIGHT = "PHEV_AFTER_MIDNIGHT"
-
-
-class ChargingProfileRateType(Enum):
-    """Charging profile rate types."""
-    OFFPEAK = "OFFPEAK"
-    MIDPEAK = "MIDPEAK"
-    PEAK = "PEAK"
-
-
-class DiagnosticRequestItem(Enum):
-    """Diagnostic request items."""
-    AMBIENT_AIR_TEMPERATURE = "AMBIENT AIR TEMPERATURE"
-    ENGINE_COOLANT_TEMP = "ENGINE COOLANT TEMP"
-    ENGINE_RPM = "ENGINE RPM"
-    EV_BATTERY_LEVEL = "EV BATTERY LEVEL"
-    EV_CHARGE_STATE = "EV CHARGE STATE"
-    EV_ESTIMATED_CHARGE_END = "EV ESTIMATED CHARGE END"
-    EV_PLUG_STATE = "EV PLUG STATE"
-    EV_PLUG_VOLTAGE = "EV PLUG VOLTAGE"
-    EV_SCHEDULED_CHARGE_START = "EV SCHEDULED CHARGE START"
-    FUEL_TANK_INFO = "FUEL TANK INFO"
-    GET_CHARGE_MODE = "GET CHARGE MODE"
-    GET_COMMUTE_SCHEDULE = "GET COMMUTE SCHEDULE"
-    HANDS_FREE_CALLING = "HANDS FREE CALLING"
-    HOTSPOT_CONFIG = "HOTSPOT CONFIG"
-    HOTSPOT_STATUS = "HOTSPOT STATUS"
-    INTERM_VOLT_BATT_VOLT = "INTERM VOLT BATT VOLT"
-    LAST_TRIP_DISTANCE = "LAST TRIP DISTANCE"
-    LAST_TRIP_FUEL_ECONOMY = "LAST TRIP FUEL ECONOMY"
-    LIFETIME_EV_ODOMETER = "LIFETIME EV ODOMETER"
-    LIFETIME_FUEL_ECON = "LIFETIME FUEL ECON"
-    LIFETIME_FUEL_USED = "LIFETIME FUEL USED"
-    ODOMETER = "ODOMETER"
-    OIL_LIFE = "OIL LIFE"
-    TIRE_PRESSURE = "TIRE PRESSURE"
-    VEHICLE_RANGE = "VEHICLE RANGE"
-
-
-class DoorRequestOptions(TypedDict, total=False):
-    """Door request options."""
-    delay: int
-
-
-class TrunkRequestOptions(TypedDict, total=False):
-    """Trunk request options."""
-    delay: int
-
-
-class AlertRequestOptions(TypedDict, total=False):
-    """Alert request options."""
-    action: List[AlertRequestAction]
-    delay: int
-    duration: int
-    override: List[AlertRequestOverride]
-
-
-class ChargeOverrideOptions(TypedDict, total=False):
-    """Charge override options."""
-    mode: ChargeOverrideMode
-
-
-class SetChargingProfileRequestOptions(TypedDict, total=False):
-    """Set charging profile request options."""
-    charge_mode: ChargingProfileChargeMode
-    rate_type: ChargingProfileRateType
-
-
-class DiagnosticsRequestOptions(TypedDict, total=False):
-    """Diagnostics request options."""
-    diagnostic_item: List[str]
 
 
 class OnStar:
@@ -177,6 +69,7 @@ class OnStar:
         request_polling_interval_seconds: int = 6,
         debug: bool = False,
     ) -> None:
+        """Initialize OnStar client."""
         self._vin = vin.upper()
         self._setup_logging(debug)
         self._auth = self._create_auth(
@@ -187,14 +80,20 @@ class OnStar:
             token_location=token_location or "./",
             debug=debug,
         )
-        # cached token info
-        self._token_resp: Optional[Dict[str, Any]] = None
-        self._decoded_payload: Optional[DecodedPayload] = None
+        
+        # Set up API client
+        self._api_client = OnStarAPIClient(
+            request_polling_timeout_seconds=request_polling_timeout_seconds,
+            request_polling_interval_seconds=request_polling_interval_seconds,
+            debug=debug,
+        )
         
         # Command status tracking
         self._check_request_status = check_request_status
-        self._request_polling_timeout_seconds = request_polling_timeout_seconds
-        self._request_polling_interval_seconds = request_polling_interval_seconds
+        
+        # Token information
+        self._token_resp: Optional[Dict[str, Any]] = None
+        self._decoded_payload: Optional[DecodedPayload] = None
         
         # Store available commands
         self._available_commands: Dict[str, Dict[str, Any]] = {}
@@ -266,172 +165,39 @@ class OnStar:
                 f"Provided VIN {self._vin} is not authorized – available: {vins}"
             )
 
-    async def _check_request_pause(self) -> None:
-        """Pause between status check requests."""
-        await asyncio.sleep(self._request_polling_interval_seconds)
+    def _get_command_url(self, command_name: str) -> str:
+        """Get the URL for a specific command from the available commands."""
+        if command_name in self._available_commands:
+            return self._available_commands[command_name]["url"]
+        
+        # Fallback to hardcoded paths if command not found
+        logger.warning(f"Command '{command_name}' not found in available commands, using fallback URL")
+        return f"/account/vehicles/{self._vin}/commands/{command_name}"
 
     async def _api_request(
         self, 
-        method: Literal["GET", "POST", "PUT", "DELETE"],
+        method: str,
         path: str, 
         *, 
         json_body: Any | None = None,
         max_retries: int = 1,
-        retry_delay: float = 2.0,
-        current_retry: int = 0,
         check_request_status: bool | None = None,
-        is_status_check: bool = False,
-        poll_count: int = 0,
         max_polls: int | None = None
     ) -> Dict[str, Any]:
-        """Make an authenticated request to the OnStar API.
-        
-        Parameters
-        ----------
-        method
-            HTTP method to use
-        path
-            API endpoint path (will be appended to API_BASE) or full URL
-        json_body
-            Optional JSON payload to send with the request
-        max_retries
-            Maximum number of retry attempts
-        retry_delay
-            Delay in seconds between retries
-        current_retry
-            Current retry attempt (used internally)
-        check_request_status
-            Whether to check and poll for command status completion
-        is_status_check
-            Whether this is a status check request (used internally)
-        poll_count
-            Current poll attempt count (used internally)
-        max_polls
-            Maximum number of poll attempts (None = unlimited)
-            
-        Returns
-        -------
-        Dict[str, Any]
-            JSON response from the API
-        """
+        """Make an authenticated request to the OnStar API."""
         await self._ensure_token()
         
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._token_resp['access_token']}",
-        }
+        should_check_status = check_request_status if check_request_status is not None else self._check_request_status
         
-        # Determine if path is a full URL or just a path
-        if path.startswith("http"):
-            url = path
-        else:
-            url = f"{API_BASE}{path}"
-            
-        logger.debug("%s %s", method, url)
-        
-        # Debug body
-        if json_body:
-            logger.debug("Request body: %s", json_body)
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.request(method, url, headers=headers, json=json_body)
-                logger.debug("→ status=%s", response.status_code)
-                
-                # Log response body on error
-                if response.status_code >= 400:
-                    logger.error("Response body: %s", response.text)
-                
-                # Check for duplicate request error
-                if response.status_code == 500 and current_retry < max_retries:
-                    try:
-                        error_body = response.json()
-                        if (error_body.get("error", {}).get("code") == "ONS-300" and
-                            "Duplicate vehicle request" in error_body.get("error", {}).get("description", "")):
-                            logger.warning(f"Duplicate request detected, retrying in {retry_delay} seconds...")
-                            await asyncio.sleep(retry_delay)
-                            return await self._api_request(
-                                method, path, json_body=json_body, 
-                                max_retries=max_retries, retry_delay=retry_delay,
-                                current_retry=current_retry + 1,
-                                check_request_status=check_request_status,
-                                is_status_check=is_status_check,
-                                poll_count=poll_count,
-                                max_polls=max_polls
-                            )
-                    except Exception as e:
-                        logger.error(f"Error parsing error response: {e}")
-                
-                response.raise_for_status()
-                response_data = response.json()
-                logger.debug("Response data: %s", response_data)
-
-                # Handle command status polling if enabled and not already a status check
-                should_check_status = check_request_status if check_request_status is not None else self._check_request_status
-                if should_check_status and isinstance(response_data, dict):
-                    command_response = response_data.get("commandResponse")
-                    
-                    if command_response:
-                        request_time = command_response.get("requestTime")
-                        status = command_response.get("status")
-                        status_url = command_response.get("url")
-                        command_type = command_response.get("type")
-                        
-                        # Check for command failure
-                        if status == CommandResponseStatus.FAILURE.value:
-                            logger.error("Command failed: %s", response_data)
-                            raise RuntimeError(f"Command failed: {response_data}")
-                        
-                        # If we have a success status with body data, return it
-                        if status == CommandResponseStatus.SUCCESS.value and "body" in command_response:
-                            return response_data
-                        
-                        # Check for maximum polls if specified
-                        if max_polls is not None and poll_count >= max_polls:
-                            logger.warning(f"Reached maximum poll count ({max_polls}), returning current response")
-                            return response_data
-                        
-                        # Check for command timeout based on request timestamp if available
-                        if request_time:
-                            request_timestamp = time.mktime(time.strptime(request_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
-                            current_time = time.time()
-                            if current_time >= request_timestamp + self._request_polling_timeout_seconds:
-                                logger.error("Command timed out after %s seconds", self._request_polling_timeout_seconds)
-                                raise RuntimeError(f"Command timed out after {self._request_polling_timeout_seconds} seconds")
-                        
-                        # For "connect" command, we don't continue polling
-                        if command_type == "connect":
-                            return response_data
-                        
-                        # For all other commands in non-success states with status URL, continue polling
-                        if status_url and status != CommandResponseStatus.SUCCESS.value:
-                            logger.debug(f"Command {command_type} in {status} state. Polling status from: {status_url}")
-                            await self._check_request_pause()
-                            
-                            # Continue polling with incremented poll count
-                            return await self._api_request(
-                                "GET", 
-                                status_url,
-                                check_request_status=should_check_status,
-                                is_status_check=True,
-                                poll_count=poll_count + 1,
-                                max_polls=max_polls
-                            )
-                
-                return response_data
-            except httpx.HTTPStatusError as e:
-                logger.error("HTTP error: %s", e)
-                # Try to parse the response JSON if possible
-                try:
-                    error_body = e.response.json()
-                    logger.error("Error details: %s", error_body)
-                except Exception:
-                    logger.error("Error response text: %s", e.response.text)
-                raise
-            except Exception as e:
-                logger.error("Request failed: %s", e)
-                raise
+        return await self._api_client.api_request(
+            self._token_resp["access_token"],
+            method,
+            path,
+            json_body=json_body,
+            max_retries=max_retries,
+            check_request_status=should_check_status,
+            max_polls=max_polls
+        )
 
     # ------------------------------------------------------------------
     # Public API methods
@@ -439,7 +205,10 @@ class OnStar:
 
     async def get_account_vehicles(self) -> Dict[str, Any]:
         """Get all vehicles associated with the account."""
-        response = await self._api_request("GET", "/account/vehicles?includeCommands=true&includeEntitlements=true&includeModules=true")
+        response = await self._api_request(
+            "GET", 
+            "/account/vehicles?includeCommands=true&includeEntitlements=true&includeModules=true"
+        )
         
         # Parse and store available commands for the current VIN
         if response and "vehicles" in response and "vehicle" in response["vehicles"]:
@@ -459,15 +228,6 @@ class OnStar:
         
         return response
 
-    def _get_command_url(self, command_name: str) -> str:
-        """Get the URL for a specific command from the available commands."""
-        if command_name in self._available_commands:
-            return self._available_commands[command_name]["url"]
-        
-        # Fallback to hardcoded paths if command not found
-        logger.warning(f"Command '{command_name}' not found in available commands, using fallback URL")
-        return f"{API_BASE}/account/vehicles/{self._vin}/commands/{command_name}"
-    
     def is_command_available(self, command_name: str) -> bool:
         """Check if a specific command is available for the vehicle."""
         return command_name in self._available_commands
@@ -484,6 +244,43 @@ class OnStar:
             return self._available_commands[command_name].get("isPrivSessionRequired", "false") == "true"
         return False
 
+    async def execute_command(self, command_name: str, request_body: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Execute any available command discovered from the API.
+        
+        This generic method allows executing any command available for the vehicle,
+        even if not explicitly implemented as a method in this client.
+        
+        Parameters
+        ----------
+        command_name
+            The name of the command to execute (must be in the available commands)
+        request_body
+            Optional JSON body to send with the request
+            
+        Returns
+        -------
+        Dict[str, Any]
+            The command response
+            
+        Raises
+        ------
+        ValueError
+            If the command is not available for this vehicle
+        """
+        if not self.is_command_available(command_name):
+            logger.error(f"Command '{command_name}' not available for this vehicle")
+            raise ValueError(f"Command '{command_name}' not available for this vehicle")
+        
+        return await self._api_request(
+            "POST",
+            self._get_command_url(command_name),
+            json_body=request_body
+        )
+
+    # ------------------------------------------------------------------
+    # Vehicle Commands
+    # ------------------------------------------------------------------
+
     async def start(self) -> Dict[str, Any]:
         """Start the vehicle."""
         return await self.execute_command("start")
@@ -492,149 +289,51 @@ class OnStar:
         """Cancel the start command."""
         return await self.execute_command("cancelStart")
 
-    async def lock_door(self, options: DoorRequestOptions = None) -> Dict[str, Any]:
-        """Lock the vehicle doors.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the lock command
-        """
-        body = {
-            "lockDoorRequest": {
-                "delay": 0,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("lockDoor", body)
+    async def lock_door(self, options: Optional[DoorRequestOptions] = None) -> Dict[str, Any]:
+        """Lock the vehicle doors."""
+        return await self.execute_command("lockDoor", CommandFactory.lock_door(options))
 
-    async def unlock_door(self, options: DoorRequestOptions = None) -> Dict[str, Any]:
-        """Unlock the vehicle doors.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the unlock command
-        """
-        body = {
-            "unlockDoorRequest": {
-                "delay": 0,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("unlockDoor", body)
+    async def unlock_door(self, options: Optional[DoorRequestOptions] = None) -> Dict[str, Any]:
+        """Unlock the vehicle doors."""
+        return await self.execute_command("unlockDoor", CommandFactory.unlock_door(options))
 
-    async def lock_trunk(self, options: TrunkRequestOptions = None) -> Dict[str, Any]:
-        """Lock the vehicle trunk.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the lock trunk command
-        """
-        body = {
-            "lockTrunkRequest": {
-                "delay": 0,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("lockTrunk", body)
+    async def lock_trunk(self, options: Optional[TrunkRequestOptions] = None) -> Dict[str, Any]:
+        """Lock the vehicle trunk."""
+        return await self.execute_command("lockTrunk", CommandFactory.lock_trunk(options))
 
-    async def unlock_trunk(self, options: TrunkRequestOptions = None) -> Dict[str, Any]:
-        """Unlock the vehicle trunk.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the unlock trunk command
-        """
-        body = {
-            "unlockTrunkRequest": {
-                "delay": 0,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("unlockTrunk", body)
+    async def unlock_trunk(self, options: Optional[TrunkRequestOptions] = None) -> Dict[str, Any]:
+        """Unlock the vehicle trunk."""
+        return await self.execute_command("unlockTrunk", CommandFactory.unlock_trunk(options))
 
-    async def alert(self, options: AlertRequestOptions = None) -> Dict[str, Any]:
-        """Trigger the vehicle alert (honk/flash).
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the alert command
-        """
-        body = {
-            "alertRequest": {
-                "action": [AlertRequestAction.HONK.value, AlertRequestAction.FLASH.value],
-                "delay": 0,
-                "duration": 1,
-                "override": [
-                    AlertRequestOverride.DOOR_OPEN.value, 
-                    AlertRequestOverride.IGNITION_ON.value
-                ],
-                **(options or {})
-            }
-        }
-        return await self.execute_command("alert", body)
+    async def alert(self, options: Optional[AlertRequestOptions] = None) -> Dict[str, Any]:
+        """Trigger the vehicle alert (honk/flash)."""
+        return await self.execute_command("alert", CommandFactory.alert(options))
 
     async def cancel_alert(self) -> Dict[str, Any]:
         """Cancel the alert command."""
         return await self.execute_command("cancelAlert")
 
-    async def charge_override(self, options: ChargeOverrideOptions = None) -> Dict[str, Any]:
-        """Override vehicle charging settings.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the charge override command
-        """
-        body = {
-            "chargeOverrideRequest": {
-                "mode": ChargeOverrideMode.CHARGE_NOW.value,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("chargeOverride", body)
+    async def charge_override(self, options: Optional[ChargeOverrideOptions] = None) -> Dict[str, Any]:
+        """Override vehicle charging settings."""
+        return await self.execute_command("chargeOverride", CommandFactory.charge_override(options))
 
     async def get_charging_profile(self) -> Dict[str, Any]:
         """Get the vehicle charging profile."""
         return await self.execute_command("getChargingProfile")
 
-    async def set_charging_profile(self, options: SetChargingProfileRequestOptions = None) -> Dict[str, Any]:
-        """Set the vehicle charging profile.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for setting the charging profile
-        """
-        body = {
-            "chargingProfile": {
-                "chargeMode": ChargingProfileChargeMode.IMMEDIATE.value,
-                "rateType": ChargingProfileRateType.MIDPEAK.value,
-                **(options or {})
-            }
-        }
-        return await self.execute_command("setChargingProfile", body)
+    async def set_charging_profile(self, options: Optional[SetChargingProfileRequestOptions] = None) -> Dict[str, Any]:
+        """Set the vehicle charging profile."""
+        return await self.execute_command(
+            "setChargingProfile", 
+            CommandFactory.set_charging_profile(options)
+        )
 
     async def get_charger_power_level(self) -> Dict[str, Any]:
         """Get the vehicle's charger power level."""
         return await self.execute_command("getChargerPowerLevel")
         
     def get_supported_diagnostics(self) -> List[str]:
-        """Get the list of diagnostic items supported by the vehicle.
-        
-        Returns
-        -------
-        List[str]
-            List of supported diagnostic item names
-            
-        Notes
-        -----
-        This method requires get_account_vehicles() to be called first.
-        """
+        """Get the list of diagnostic items supported by the vehicle."""
         supported_diagnostics = []
         command_data = self.get_command_data("diagnostics")
         
@@ -645,32 +344,13 @@ class OnStar:
             
         return supported_diagnostics
 
-    async def diagnostics(self, options: DiagnosticsRequestOptions = None, timeout_seconds: int = 180, max_polls: int = None) -> Dict[str, Any]:
-        """Get diagnostic data from the vehicle.
-        
-        By default, this method will retrieve all supported diagnostic items.
-        You can request specific items by providing them in the options.
-        
-        Parameters
-        ----------
-        options
-            Optional parameters for the diagnostics command:
-            - diagnostic_item: List of specific diagnostic items to request
-        timeout_seconds
-            Maximum time in seconds to wait for diagnostics results (default: 180)
-        max_polls
-            Maximum number of polling attempts (None = unlimited)
-        
-        Returns
-        -------
-        Dict[str, Any]
-            The diagnostics response
-            
-        Raises
-        ------
-        ValueError
-            If requested diagnostic items are not supported
-        """
+    async def diagnostics(
+        self, 
+        options: Optional[DiagnosticsRequestOptions] = None, 
+        timeout_seconds: int = 180, 
+        max_polls: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Get diagnostic data from the vehicle."""
         if not self.is_command_available("diagnostics"):
             logger.error("Diagnostics command not available for this vehicle")
             raise ValueError("Diagnostics command not available for this vehicle")
@@ -699,32 +379,18 @@ class OnStar:
                 logger.error("None of the requested diagnostic items are supported")
                 raise ValueError("None of the requested diagnostic items are supported")
         
-        # Build request body - if no specific items requested, get all supported items
-        body = {
-            "diagnosticsRequest": {
-                "diagnosticItem": requested_items if requested_items else supported_diagnostics
-            }
-        }
+        # Build request body with CommandFactory
+        diagnostic_items = requested_items if requested_items else supported_diagnostics
+        body = CommandFactory.diagnostics(diagnostic_items)
         
-        # Save current polling timeout
-        original_timeout = self._request_polling_timeout_seconds
-        
-        try:
-            # Set extended timeout for diagnostics command
-            self._request_polling_timeout_seconds = timeout_seconds
-            logger.info(f"Using extended timeout of {timeout_seconds} seconds for diagnostics")
-            
-            # Make the API request directly with polling enabled and max_polls parameter
-            return await self._api_request(
-                "POST",
-                self._get_command_url("diagnostics"),
-                json_body=body,
-                check_request_status=True,
-                max_polls=max_polls
-            )
-        finally:
-            # Restore original timeout
-            self._request_polling_timeout_seconds = original_timeout
+        # Use extended timeout for diagnostics
+        return await self._api_request(
+            "POST",
+            self._get_command_url("diagnostics"),
+            json_body=body,
+            check_request_status=True,
+            max_polls=max_polls
+        )
         
     async def location(self) -> Dict[str, Any]:
         """Get the vehicle's current location."""
@@ -766,51 +432,8 @@ class OnStar:
             return hvac_command["commandData"]["supportedHvacData"]
         return {}
         
-    async def execute_command(self, command_name: str, request_body: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Execute any available command discovered from the API.
-        
-        This generic method allows executing any command available for the vehicle,
-        even if not explicitly implemented as a method in this client.
-        
-        Parameters
-        ----------
-        command_name
-            The name of the command to execute (must be in the available commands)
-        request_body
-            Optional JSON body to send with the request
-            
-        Returns
-        -------
-        Dict[str, Any]
-            The command response
-            
-        Raises
-        ------
-        ValueError
-            If the command is not available for this vehicle
-        """
-        if not self.is_command_available(command_name):
-            logger.error(f"Command '{command_name}' not available for this vehicle")
-            raise ValueError(f"Command '{command_name}' not available for this vehicle")
-        
-        return await self._api_request(
-            "POST",
-            self._get_command_url(command_name),
-            json_body=request_body
-        )
-        
-    async def set_hvac_settings(self, ac_mode: str = None, heated_steering_wheel: bool = None) -> Dict[str, Any]:
-        """Set HVAC settings for the vehicle.
-        
-        This method uses dynamic capabilities data to validate parameters.
-        
-        Parameters
-        ----------
-        ac_mode
-            AC climate mode setting (e.g., "AC_NORM_ACTIVE")
-        heated_steering_wheel
-            Whether to enable heated steering wheel
-        """
+    async def set_hvac_settings(self, ac_mode: Optional[str] = None, heated_steering_wheel: Optional[bool] = None) -> Dict[str, Any]:
+        """Set HVAC settings for the vehicle."""
         if not self.is_command_available("setHvacSettings"):
             logger.error("setHvacSettings command not available for this vehicle")
             raise ValueError("setHvacSettings command not available for this vehicle")
@@ -818,28 +441,24 @@ class OnStar:
         # Get supported settings to validate inputs
         supported_settings = self.get_supported_hvac_settings()
         
-        # Build request body
-        body = {"hvacSettings": {}}
-        
-        # Add AC climate mode if provided and supported
+        # Validate AC climate mode if provided
         if ac_mode is not None:
             supported_modes = []
             if "supportedAcClimateModeSettings" in supported_settings:
                 supported_modes = supported_settings["supportedAcClimateModeSettings"].get("supportedAcClimateModeSetting", [])
             
-            if supported_modes and ac_mode in supported_modes:
-                body["hvacSettings"]["acClimateSetting"] = ac_mode
-            else:
+            if supported_modes and ac_mode not in supported_modes:
                 supported_str = ", ".join(supported_modes) if supported_modes else "none"
                 logger.warning(f"Unsupported AC climate mode: {ac_mode}. Supported modes: {supported_str}")
         
-        # Add heated steering wheel if provided and supported
+        # Validate heated steering wheel if provided
         if heated_steering_wheel is not None:
             is_supported = supported_settings.get("heatedSteeringWheelSupported", "false") == "true"
-            if is_supported:
-                body["hvacSettings"]["heatedSteeringWheelEnabled"] = "true" if heated_steering_wheel else "false"
-            else:
+            if not is_supported:
                 logger.warning("Heated steering wheel not supported by this vehicle")
         
-        # Make the request
-        return await self.execute_command("setHvacSettings", body) 
+        # Create command payload and execute
+        return await self.execute_command(
+            "setHvacSettings", 
+            CommandFactory.set_hvac_settings(ac_mode, heated_steering_wheel)
+        ) 

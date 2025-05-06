@@ -3,7 +3,8 @@ import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from onstar.client import OnStar, DiagnosticsRequestOptions, CommandResponseStatus
+from onstar.client import OnStar
+from onstar.types import DiagnosticsRequestOptions, CommandResponseStatus
 
 
 @pytest.fixture
@@ -146,9 +147,15 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request:
+        ) as mock_request, patch('onstar.commands.CommandFactory.lock_door') as mock_factory:
+            # Set up factory to return expected values
+            mock_factory.side_effect = lambda opts: {"lockDoorRequest": {"delay": 0 if not opts else opts.get("delay", 0)}}
+            
             # Test with default options
             result = await onstar_client.lock_door()
+            
+            # Verify factory was called
+            mock_factory.assert_called_once_with(None)
             
             # Verify the API request was made with the expected body
             mock_request.assert_called_once_with(
@@ -159,10 +166,14 @@ class TestOnStarClient:
             
             # Test with custom options
             mock_request.reset_mock()
+            mock_factory.reset_mock()
             options = {"delay": 10}
             result = await onstar_client.lock_door(options)
             
-            # Verify the API request was made with the custom options
+            # Verify factory was called with options
+            mock_factory.assert_called_once_with(options)
+            
+            # Verify the API request was made with the factory output
             mock_request.assert_called_once_with(
                 "POST",
                 "https://api.example.com/api/v1/account/vehicles/TEST12345678901234/commands/lockDoor",
@@ -183,9 +194,15 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request:
+        ) as mock_request, patch('onstar.commands.CommandFactory.unlock_door') as mock_factory:
+            # Set up factory to return expected values
+            mock_factory.side_effect = lambda opts: {"unlockDoorRequest": {"delay": 0 if not opts else opts.get("delay", 0)}}
+            
             # Test with default options
             result = await onstar_client.unlock_door()
+            
+            # Verify factory was called
+            mock_factory.assert_called_once_with(None)
             
             # Verify the API request was made with the expected body
             mock_request.assert_called_once_with(
@@ -196,10 +213,14 @@ class TestOnStarClient:
             
             # Test with custom options
             mock_request.reset_mock()
+            mock_factory.reset_mock()
             options = {"delay": 5}
             result = await onstar_client.unlock_door(options)
             
-            # Verify the API request was made with the custom options
+            # Verify factory was called with options
+            mock_factory.assert_called_once_with(options)
+            
+            # Verify the API request was made with the factory output
             mock_request.assert_called_once_with(
                 "POST",
                 "https://api.example.com/api/v1/account/vehicles/TEST12345678901234/commands/unlockDoor",
@@ -519,7 +540,10 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_diagnostics_response
-        ) as mock_request:
+        ) as mock_request, patch('onstar.commands.CommandFactory.diagnostics') as mock_factory:
+            # Set up factory to return expected values
+            mock_factory.side_effect = lambda items: {"diagnosticsRequest": {"diagnosticItem": items}}
+            
             # Set up the available commands
             onstar_client._available_commands = {
                 "diagnostics": {
@@ -538,6 +562,9 @@ class TestOnStarClient:
             # Request diagnostics with specific items
             options = {"diagnostic_item": ["ODOMETER"]}
             result = await onstar_client.diagnostics(options=options)
+            
+            # Verify factory was called with the correct items
+            mock_factory.assert_called_once_with(["ODOMETER"])
             
             # Verify the API request was made with the correct body
             mock_request.assert_called_once()
@@ -561,7 +588,10 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_diagnostics_response
-        ) as mock_request:
+        ) as mock_request, patch('onstar.commands.CommandFactory.diagnostics') as mock_factory:
+            # Set up factory to return expected values
+            mock_factory.side_effect = lambda items: {"diagnosticsRequest": {"diagnosticItem": items}}
+            
             # Set up the available commands
             onstar_client._available_commands = {
                 "diagnostics": {
@@ -579,6 +609,9 @@ class TestOnStarClient:
             
             # Request all diagnostics
             result = await onstar_client.diagnostics()
+            
+            # Verify factory was called with all supported items
+            mock_factory.assert_called_once_with(["ODOMETER", "TIRE_PRESSURE"])
             
             # Verify the API request was made with all supported items
             mock_request.assert_called_once()
@@ -828,12 +861,24 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request:
+        ) as mock_request, patch('onstar.commands.CommandFactory.set_hvac_settings') as mock_factory:
+            # Set up factory to return expected values
+            mock_factory.side_effect = lambda ac_mode, heated_steering_wheel: {
+                "hvacSettings": {
+                    **({"acClimateSetting": ac_mode} if ac_mode is not None else {}),
+                    **({"heatedSteeringWheelEnabled": "true" if heated_steering_wheel else "false"} 
+                       if heated_steering_wheel is not None else {})
+                }
+            }
+            
             # Test with specific settings
             result = await onstar_client.set_hvac_settings(
                 ac_mode="AC_NORM_ACTIVE",
                 heated_steering_wheel=True
             )
+            
+            # Verify factory was called with correct parameters
+            mock_factory.assert_called_once_with("AC_NORM_ACTIVE", True)
             
             # Verify the API request was made with the expected body
             mock_request.assert_called_once()
@@ -872,4 +917,70 @@ class TestOnStarClient:
             }
         }
         result = onstar_client.get_supported_hvac_settings()
-        assert result == hvac_data 
+        assert result == hvac_data
+
+    def test_api_client_initialization(self, mock_gm_auth):
+        """Test that the OnStarAPIClient is properly initialized."""
+        with patch('onstar.client.GMAuth', return_value=mock_gm_auth), \
+             patch('onstar.client.OnStarAPIClient') as mock_api_client_class:
+            # Initialize the client
+            client = OnStar(
+                username="test@example.com",
+                password="password123",
+                device_id="test-device-id",
+                vin="TEST12345678901234",
+                onstar_pin="1234",
+                totp_secret="testsecret",
+                token_location="./",
+                request_polling_timeout_seconds=120,
+                request_polling_interval_seconds=10,
+                debug=True
+            )
+            
+            # Verify OnStarAPIClient was initialized with the correct parameters
+            mock_api_client_class.assert_called_once_with(
+                request_polling_timeout_seconds=120,
+                request_polling_interval_seconds=10,
+                debug=True
+            )
+            
+            # Verify that the client has the api_client attribute
+            assert hasattr(client, "_api_client")
+    
+    @pytest.mark.asyncio
+    async def test_api_request_delegated_to_api_client(self, onstar_client):
+        """Test that _api_request delegates to the OnStarAPIClient."""
+        # Create mock api_client
+        mock_api_client = AsyncMock()
+        mock_api_client.api_request.return_value = {"result": "success"}
+        onstar_client._api_client = mock_api_client
+        
+        # Set token response
+        onstar_client._token_resp = {
+            "access_token": "test_access_token",
+            "expires_at": 9999999999  # Far future to avoid refresh
+        }
+        
+        # Call _api_request
+        result = await onstar_client._api_request(
+            "POST",
+            "/test/path",
+            json_body={"test": "value"},
+            max_retries=2,
+            check_request_status=True,
+            max_polls=5
+        )
+        
+        # Verify api_client.api_request was called with correct parameters
+        mock_api_client.api_request.assert_called_once_with(
+            "test_access_token",
+            "POST",
+            "/test/path",
+            json_body={"test": "value"},
+            max_retries=2,
+            check_request_status=True,
+            max_polls=5
+        )
+        
+        # Verify the result is what api_client returned
+        assert result == {"result": "success"} 
