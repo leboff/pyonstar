@@ -359,6 +359,27 @@ class GMAuth:
         resp.raise_for_status()
         return resp
 
+    def _post_oauth_token_request(self, url: str, data: Dict[str, str]) -> requests.Response:
+        """Helper for POST requests to OAuth token endpoints."""
+        if self.debug:
+            logger.debug(f"[GMAuth][POST-OAuthToken] {url} data={data}")
+
+        request_specific_headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
+        
+        resp = self._session.post(
+            url,
+            data=data,
+            headers=request_specific_headers,
+        )
+        
+        if self.debug:
+            logger.debug(f"[GMAuth] OAuth Token Endpoint Response Status ({url}): {resp.status_code}")
+        resp.raise_for_status()
+        return resp
+
     # ------------------------------------------------------------------
     # Steps: credentials, MFA, authorization code
     # ------------------------------------------------------------------
@@ -429,37 +450,25 @@ class GMAuth:
             f"?csrf_token={csrf}&tx={trans_id}&p=B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
         )
 
-        # COMMON_HEADERS (User-Agent, Accept-Language) are already on self._session.headers.
-        # requests library handles Accept-Encoding and Connection by default.
-        request_specific_headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
-        if self.debug:
-            logger.debug(f"[GMAuth][GET ] {url}")
-            # Show the headers that will be explicitly passed to the session.get() method.
-            # Session's own default headers (like User-Agent, Accept-Language from COMMON_HEADERS) 
-            # and cookies will be added automatically by the requests library.
-            logger.debug(f"[GMAuth] Explicit headers for Auth Code GET: {request_specific_headers}")
-
-
-        resp = self._session.get(
-            url,
-            headers=request_specific_headers,
-            allow_redirects=False,  # Keep this to handle 302 manually
-            )
+        # Use the _get_request helper method.
+        # It already handles debug logging for the GET, sets appropriate Accept headers,
+        # and sets allow_redirects=False.
+        # It also calls resp.raise_for_status(), which is fine as 302 is not an HTTP error status.
+        resp = self._get_request(url)
+        
         # ADD Debug: Check if session cookies were updated
         if self.debug:
             # ADD MORE DEBUG
             logger.debug(f"[GMAuth] Auth Code GET Response Status: {resp.status_code}")
             logger.debug(f"[GMAuth] Auth Code GET Response Headers: {resp.headers}")
             if resp.status_code != 302:
-                 logger.debug(f"[GMAuth] Auth Code GET Response Body (first 500):\n{resp.text[:500]}")
+                 logger.debug(f"[GMAuth] Auth Code GET Response Body (first 500):\\n{resp.text[:500]}")
 
         if resp.status_code != 302:
             # Log the response content if we didn't get the expected redirect
             if self.debug:
                 logger.debug(f"[GMAuth] Unexpected status {resp.status_code} fetching auth code.")
-                logger.debug(f"[GMAuth] Response body:\n{resp.text[:500]}...") # Log first 500 chars
+                logger.debug(f"[GMAuth] Response body:\\n{resp.text[:500]}...") # Log first 500 chars
             raise RuntimeError(f"Expected redirect when fetching auth code, got {resp.status_code}")
         location = resp.headers.get("Location") or resp.headers.get("location")
         if not location:
@@ -480,11 +489,7 @@ class GMAuth:
             "redirect_uri": REDIRECT_URI,
             "code_verifier": code_verifier,
         }
-        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
-        resp = self._session.post(self._token_endpoint, data=data, headers=headers)
-        if self.debug:
-            logger.debug(f"[GMAuth] token_endpoint status={resp.status_code}")
-        resp.raise_for_status()
+        resp = self._post_oauth_token_request(self._token_endpoint, data)
         token_resp = resp.json()
         if "access_token" not in token_resp:
             raise RuntimeError("token_endpoint did not return access_token")
@@ -505,11 +510,7 @@ class GMAuth:
             "client_id": CLIENT_ID,
             "refresh_token": refresh_token,
         }
-        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
-        resp = self._session.post(self._token_endpoint, data=data, headers=headers)
-        if self.debug:
-            logger.debug(f"[GMAuth] refresh_token status={resp.status_code}")
-        resp.raise_for_status()
+        resp = self._post_oauth_token_request(self._token_endpoint, data)
         token_resp = resp.json()
         if "access_token" not in token_resp:
             raise RuntimeError("Refresh failed – no access_token")
@@ -548,11 +549,7 @@ class GMAuth:
             "scope": "msso role_owner priv onstar gmoc user user_trailer",
             "device_id": self.config["device_id"],
         }
-        headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
-        resp = self._session.post(GM_TOKEN_ENDPOINT, data=data, headers=headers)
-        if self.debug:
-            logger.debug(f"[GMAuth] gm_token_endpoint status={resp.status_code}")
-        resp.raise_for_status()
+        resp = self._post_oauth_token_request(GM_TOKEN_ENDPOINT, data)
         gm_token: GMAPITokenResponse = resp.json()  # type: ignore[assignment]
         # Add expires_at for convenience
         gm_token["expires_at"] = int(time.time()) + int(gm_token["expires_in"])
