@@ -723,8 +723,8 @@ class TestOnStarClient:
             args, kwargs = mock_request.call_args
             assert args[0] == "POST"
             assert args[1] == "https://api.example.com/api/v1/account/vehicles/TEST12345678901234/commands/setChargingProfile"
-            assert kwargs["json_body"]["chargingProfile"]["chargeMode"] == "Immediate"
-            assert kwargs["json_body"]["chargingProfile"]["rateType"] == "Midpeak"
+            assert kwargs["json_body"]["chargingProfile"]["chargeMode"] == "IMMEDIATE"
+            assert kwargs["json_body"]["chargingProfile"]["rateType"] == "MIDPEAK"
             
             # Test with custom options - note that we need to mock the method to use a dict that includes these keys
             # because the client.py implementation uses **options unpacking, not direct key access
@@ -765,7 +765,7 @@ class TestOnStarClient:
             args, kwargs = mock_request.call_args
             assert args[0] == "POST"
             assert args[1] == "https://api.example.com/api/v1/account/vehicles/TEST12345678901234/commands/chargeOverride"
-            assert kwargs["json_body"]["chargeOverrideRequest"]["mode"] == "ChargeNow"
+            assert kwargs["json_body"]["chargeOverrideRequest"]["mode"] == "CHARGE_NOW"
             
             # Test with custom options
             mock_request.reset_mock()

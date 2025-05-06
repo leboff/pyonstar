@@ -46,7 +46,8 @@ def mock_gmauth_authenticate():
         yield mock
 
 
-def test_get_gm_api_jwt(mock_jwt_decode, mock_gmauth_authenticate):
+@pytest.mark.asyncio
+async def test_get_gm_api_jwt(mock_jwt_decode, mock_gmauth_authenticate):
     """Test the get_gm_api_jwt function with mocked dependencies."""
     from onstar.auth import get_gm_api_jwt
     
@@ -58,7 +59,7 @@ def test_get_gm_api_jwt(mock_jwt_decode, mock_gmauth_authenticate):
         "token_location": "./",
     }
     
-    result = get_gm_api_jwt(config)
+    result = await get_gm_api_jwt(config)
     
     # Verify authenticate was called
     mock_gmauth_authenticate.assert_called_once()

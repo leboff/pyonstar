@@ -1,6 +1,6 @@
 """Tests for the API module."""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from onstar.auth.api import get_gm_api_jwt
 
@@ -8,11 +8,12 @@ from onstar.auth.api import get_gm_api_jwt
 class TestApiModule:
     """Tests for the API module."""
     
-    def test_get_gm_api_jwt_missing_config(self):
+    @pytest.mark.asyncio
+    async def test_get_gm_api_jwt_missing_config(self):
         """Test get_gm_api_jwt with missing configuration."""
         # Test with empty config
         with pytest.raises(ValueError, match="Missing required configuration key:"):
-            get_gm_api_jwt({})
+            await get_gm_api_jwt({})
         
         # Test with partial config
         partial_config = {
@@ -21,14 +22,15 @@ class TestApiModule:
             # Missing device_id and totp_key
         }
         with pytest.raises(ValueError, match="Missing required configuration key:"):
-            get_gm_api_jwt(partial_config)
+            await get_gm_api_jwt(partial_config)
     
+    @pytest.mark.asyncio
     @patch('onstar.auth.api.GMAuth')
     @patch('onstar.auth.api.jwt.decode')
-    def test_get_gm_api_jwt_success(self, mock_jwt_decode, mock_auth_class):
+    async def test_get_gm_api_jwt_success(self, mock_jwt_decode, mock_auth_class):
         """Test get_gm_api_jwt with successful authentication."""
         # Setup mock auth instance
-        mock_auth = MagicMock()
+        mock_auth = AsyncMock()
         mock_auth_class.return_value = mock_auth
         
         # Configure mock authenticate method
@@ -53,7 +55,7 @@ class TestApiModule:
             "token_location": "./",
         }
         
-        result = get_gm_api_jwt(config)
+        result = await get_gm_api_jwt(config)
         
         # Verify GMAuth was constructed with correct arguments
         mock_auth_class.assert_called_once_with(config, debug=False)
@@ -82,11 +84,12 @@ class TestApiModule:
         # Verify decoded payload
         assert result["decoded_payload"]["vehs"][0]["vin"] == "TEST12345678901234"
     
+    @pytest.mark.asyncio
     @patch('onstar.auth.api.GMAuth')
-    def test_get_gm_api_jwt_debug_mode(self, mock_auth_class):
+    async def test_get_gm_api_jwt_debug_mode(self, mock_auth_class):
         """Test get_gm_api_jwt with debug mode enabled."""
         # Setup mock auth instance
-        mock_auth = MagicMock()
+        mock_auth = AsyncMock()
         mock_auth_class.return_value = mock_auth
         
         # Configure authenticate to return a token
@@ -109,7 +112,7 @@ class TestApiModule:
         # We don't need to validate the full result again, just verify debug flag was passed
         with patch('onstar.auth.api.jwt.decode') as mock_jwt_decode:
             mock_jwt_decode.return_value = {"vehs": [{"vin": "TEST12345678901234"}]}
-            get_gm_api_jwt(config, debug=True)
+            await get_gm_api_jwt(config, debug=True)
         
         # Verify GMAuth was constructed with debug=True
         mock_auth_class.assert_called_once_with(config, debug=True) 
