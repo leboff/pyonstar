@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -134,6 +135,7 @@ COMMON_HEADERS = {
     "User-Agent": USER_AGENT,
 }
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -187,17 +189,17 @@ class GMAuth:
         """Return a *valid* GM API OAuth token, performing auth flow when required."""
 
         if self.debug:
-            print("[GMAuth] Starting authentication flow…")
+            logger.debug("[GMAuth] Starting authentication flow…")
 
         token_set = self._load_ms_token()
         if token_set is not False:
             if self.debug:
-                print("[GMAuth] Successfully loaded cached MS tokens → exchanging for GM token…")
+                logger.debug("[GMAuth] Successfully loaded cached MS tokens → exchanging for GM token…")
             return self._get_gm_api_token(token_set)
 
         # Full authentication required
         if self.debug:
-            print("[GMAuth] Performing full MS B2C authentication…")
+            logger.debug("[GMAuth] Performing full MS B2C authentication…")
 
         token_set = self._do_full_auth_sequence()
         return self._get_gm_api_token(token_set)
@@ -217,7 +219,7 @@ class GMAuth:
             raise RuntimeError("Failed to locate csrf or transId in authorization page")
 
         if self.debug:
-            print(f"[GMAuth] csrf={csrf}  trans_id={trans_id}")
+            logger.debug(f"[GMAuth] csrf={csrf}  trans_id={trans_id}")
 
         # ── Submit user credentials ──
         self._submit_credentials(csrf, trans_id)
@@ -231,7 +233,7 @@ class GMAuth:
             raise RuntimeError("Failed to get authorization code after login/MFA")
 
         if self.debug:
-            print(f"[GMAuth] Received authorization code: {auth_code[:6]}…")
+            logger.debug(f"[GMAuth] Received authorization code: {auth_code[:6]}…")
 
         # ── Exchange *code* + *code_verifier* for *tokens* ──
         token_set = self._fetch_ms_token(auth_code, code_verifier)
@@ -283,9 +285,9 @@ class GMAuth:
 
         authorization_url = auth_ep + "?" + requests.compat.urlencode(params)
         if self.debug:
-            print(f"[GMAuth] Authorization endpoint: {auth_ep}")
-            print(f"[GMAuth] Token endpoint: {token_ep}")
-            print(f"[GMAuth] Generated authorization URL: {authorization_url}")
+            logger.debug(f"[GMAuth] Authorization endpoint: {auth_ep}")
+            logger.debug(f"[GMAuth] Token endpoint: {token_ep}")
+            logger.debug(f"[GMAuth] Generated authorization URL: {authorization_url}")
         return authorization_url, code_verifier
 
     # ------------------------------------------------------------------
@@ -297,7 +299,7 @@ class GMAuth:
 
         try:
             if self.debug:
-                print(f"[GMAuth] Fetching OIDC discovery metadata → {DISCOVERY_URL}")
+                logger.debug(f"[GMAuth] Fetching OIDC discovery metadata → {DISCOVERY_URL}")
             resp = self._session.get(
                 DISCOVERY_URL,
                 headers={"Accept": "application/json"},
@@ -310,7 +312,7 @@ class GMAuth:
             return auth_ep, token_ep
         except Exception as exc:
             if self.debug:
-                print(f"[GMAuth] Discovery failed – falling back to hard-coded endpoints ({exc})")
+                logger.debug(f"[GMAuth] Discovery failed – falling back to hard-coded endpoints ({exc})")
             return FALLBACK_AUTHORIZATION_ENDPOINT, FALLBACK_TOKEN_ENDPOINT
 
     # ------------------------------------------------------------------
@@ -319,7 +321,7 @@ class GMAuth:
 
     def _get_request(self, url: str) -> requests.Response:
         if self.debug:
-            print(f"[GMAuth][GET ] {url}")
+            logger.debug(f"[GMAuth][GET ] {url}")
         # COMMON_HEADERS (User-Agent, Accept-Language) are already on self._session.headers.
         # requests library handles Accept-Encoding and Connection by default.
         request_specific_headers = {
@@ -335,7 +337,7 @@ class GMAuth:
 
     def _post_request(self, url: str, data: Union[Dict[str, str], str], csrf_token: str, extra_headers: Optional[Dict[str, str]] = None) -> requests.Response:
         if self.debug:
-            print(f"[GMAuth][POST] {url}  data={data}")
+            logger.debug(f"[GMAuth][POST] {url}  data={data}")
 
         # COMMON_HEADERS (User-Agent, Accept-Language) are already on self._session.headers.
         # requests library handles Accept-Encoding and Connection by default.
@@ -390,14 +392,13 @@ class GMAuth:
             raise RuntimeError("Failed to extract csrf/transId during MFA GET step for OTP submission")
 
         if self.debug:
-            print(f"[GMAuth] csrf_for_otp={csrf_for_otp}, trans_id_for_otp={trans_id_for_otp}")
+            logger.debug(f"[GMAuth] csrf_for_otp={csrf_for_otp}, trans_id_for_otp={trans_id_for_otp}")
 
         # Step 2: Generate TOTP code
-        # ... (TOTP generation logic) ...
         try:
             otp = pyotp.TOTP(self.config["totp_key"].strip()).now()
             if self.debug:
-                print(f"[GMAuth] Generated OTP: {otp}")
+                logger.debug(f"[GMAuth] Generated OTP: {otp}")
         except Exception as e:
             raise RuntimeError(f"Failed to generate OTP: {e}") from e
 
@@ -434,11 +435,11 @@ class GMAuth:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         if self.debug:
-            print(f"[GMAuth][GET ] {url}")
+            logger.debug(f"[GMAuth][GET ] {url}")
             # Show the headers that will be explicitly passed to the session.get() method.
             # Session's own default headers (like User-Agent, Accept-Language from COMMON_HEADERS) 
             # and cookies will be added automatically by the requests library.
-            print(f"[GMAuth] Explicit headers for Auth Code GET: {request_specific_headers}")
+            logger.debug(f"[GMAuth] Explicit headers for Auth Code GET: {request_specific_headers}")
 
 
         resp = self._session.get(
@@ -449,16 +450,16 @@ class GMAuth:
         # ADD Debug: Check if session cookies were updated
         if self.debug:
             # ADD MORE DEBUG
-            print(f"[GMAuth] Auth Code GET Response Status: {resp.status_code}")
-            print(f"[GMAuth] Auth Code GET Response Headers: {resp.headers}")
+            logger.debug(f"[GMAuth] Auth Code GET Response Status: {resp.status_code}")
+            logger.debug(f"[GMAuth] Auth Code GET Response Headers: {resp.headers}")
             if resp.status_code != 302:
-                 print(f"[GMAuth] Auth Code GET Response Body (first 500):\n{resp.text[:500]}")
+                 logger.debug(f"[GMAuth] Auth Code GET Response Body (first 500):\n{resp.text[:500]}")
 
         if resp.status_code != 302:
             # Log the response content if we didn't get the expected redirect
             if self.debug:
-                print(f"[GMAuth] Unexpected status {resp.status_code} fetching auth code.")
-                print(f"[GMAuth] Response body:\n{resp.text[:500]}...") # Log first 500 chars
+                logger.debug(f"[GMAuth] Unexpected status {resp.status_code} fetching auth code.")
+                logger.debug(f"[GMAuth] Response body:\n{resp.text[:500]}...") # Log first 500 chars
             raise RuntimeError(f"Expected redirect when fetching auth code, got {resp.status_code}")
         location = resp.headers.get("Location") or resp.headers.get("location")
         if not location:
@@ -482,7 +483,7 @@ class GMAuth:
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
         resp = self._session.post(self._token_endpoint, data=data, headers=headers)
         if self.debug:
-            print(f"[GMAuth] token_endpoint status={resp.status_code}")
+            logger.debug(f"[GMAuth] token_endpoint status={resp.status_code}")
         resp.raise_for_status()
         token_resp = resp.json()
         if "access_token" not in token_resp:
@@ -507,7 +508,7 @@ class GMAuth:
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
         resp = self._session.post(self._token_endpoint, data=data, headers=headers)
         if self.debug:
-            print(f"[GMAuth] refresh_token status={resp.status_code}")
+            logger.debug(f"[GMAuth] refresh_token status={resp.status_code}")
         resp.raise_for_status()
         token_resp = resp.json()
         if "access_token" not in token_resp:
@@ -534,11 +535,11 @@ class GMAuth:
         # Cached & valid?
         if self._current_gm_token and self._token_is_valid(self._current_gm_token):
             if self.debug:
-                print("[GMAuth] Using cached GM API token")
+                logger.debug("[GMAuth] Using cached GM API token")
             return self._current_gm_token
 
         if self.debug:
-            print("[GMAuth] Requesting GM API token via token exchange…")
+            logger.debug("[GMAuth] Requesting GM API token via token exchange…")
 
         data = {
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -550,7 +551,7 @@ class GMAuth:
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
         resp = self._session.post(GM_TOKEN_ENDPOINT, data=data, headers=headers)
         if self.debug:
-            print(f"[GMAuth] gm_token_endpoint status={resp.status_code}")
+            logger.debug(f"[GMAuth] gm_token_endpoint status={resp.status_code}")
         resp.raise_for_status()
         gm_token: GMAPITokenResponse = resp.json()  # type: ignore[assignment]
         # Add expires_at for convenience
@@ -564,7 +565,7 @@ class GMAuth:
         if not decoded.get("vehs"):
             # Wipe tokens for reauth
             if self.debug:
-                print("[GMAuth] GM token missing vehicle info – forcing re-auth")
+                logger.debug("[GMAuth] GM token missing vehicle info – forcing re-auth")
             if self._ms_token_path.exists():
                 self._ms_token_path.rename(self._ms_token_path.with_suffix(".old"))
             if self._gm_token_path.exists():
@@ -590,7 +591,7 @@ class GMAuth:
             with self._gm_token_path.open("w", encoding="utf-8") as fp:
                 json.dump(self._current_gm_token, fp)
         if self.debug:
-            print(f"[GMAuth] Tokens persisted to → {self._ms_token_path.parent}")
+            logger.debug(f"[GMAuth] Tokens persisted to → {self._ms_token_path.parent}")
 
     def _load_current_gm_api_token(self):
         if not self._gm_token_path.exists():
@@ -602,15 +603,15 @@ class GMAuth:
             )  # type: ignore[arg-type]
             if decoded.get("uid", "").upper() != self.config["username"].upper():
                 if self.debug:
-                    print("[GMAuth] Stored GM token belongs to another user – ignoring")
+                    logger.debug("[GMAuth] Stored GM token belongs to another user – ignoring")
                 return
             if self._token_is_valid(gm_token):
                 self._current_gm_token = gm_token
                 if self.debug:
-                    print("[GMAuth] Loaded valid GM token from disk")
+                    logger.debug("[GMAuth] Loaded valid GM token from disk")
         except Exception as exc:
             if self.debug:
-                print(f"[GMAuth] Failed to load GM token – {exc}")
+                logger.debug(f"[GMAuth] Failed to load GM token – {exc}")
 
     def _load_ms_token(self) -> TokenSet | bool:
         if not self._ms_token_path.exists():
@@ -624,24 +625,24 @@ class GMAuth:
             email_or_name = decoded.get("name", "").upper() or decoded.get("email", "").upper()
             if email_or_name != self.config["username"].upper():
                 if self.debug:
-                    print("[GMAuth] Cached MS token belongs to different user – ignoring")
+                    logger.debug("[GMAuth] Cached MS token belongs to different user – ignoring")
                 return False
             if stored.get("expires_at", 0) > int(time.time()) + 5 * 60:
                 return stored
             # else attempt refresh
             if stored.get("refresh_token"):
                 if self.debug:
-                    print("[GMAuth] MS access_token expired → attempting refresh…")
+                    logger.debug("[GMAuth] MS access_token expired → attempting refresh…")
                 try:
                     refreshed = self._refresh_ms_token(stored["refresh_token"])
                     self._save_tokens(refreshed)
                     return refreshed
                 except Exception as exc:
                     if self.debug:
-                        print(f"[GMAuth] Failed to refresh MS token – {exc}")
+                        logger.debug(f"[GMAuth] Failed to refresh MS token – {exc}")
         except Exception as exc:
             if self.debug:
-                print(f"[GMAuth] Error loading MS token: {exc}")
+                logger.debug(f"[GMAuth] Error loading MS token: {exc}")
         return False
 
     # ------------------------------------------------------------------

@@ -7,6 +7,7 @@ purposes.  It is straightforward to add additional endpoints using the generic
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any, Dict, Optional
 
@@ -18,6 +19,8 @@ __all__ = ["OnStar"]
 
 
 API_BASE = "https://na-mobile-api.gm.com/api/v1"
+TOKEN_REFRESH_WINDOW_SECONDS = 5 * 60
+logger = logging.getLogger(__name__)
 
 
 class OnStar:
@@ -58,7 +61,13 @@ class OnStar:
         debug: bool = False,
     ) -> None:
         self._vin = vin.upper()
-        self._debug = debug
+        if debug:
+            # Initialize basic logging config if debug is enabled.
+            # This will only have an effect the first time it's called.
+            logging.basicConfig(
+                level=logging.DEBUG, 
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
         self._auth = GMAuth(
             {
                 "username": username,
@@ -82,22 +91,17 @@ class OnStar:
         def _needs_refresh(token: Dict[str, Any] | None) -> bool:
             if not token:
                 return True
-            return token.get("expires_at", 0) < int(time.time()) + 5 * 60
+            return token.get("expires_at", 0) < int(time.time()) + TOKEN_REFRESH_WINDOW_SECONDS
 
         if _needs_refresh(self._token_resp):
-            if self._debug:
-                print("[OnStar] Retrieving new GM auth token…")
+            logger.debug("Retrieving new GM auth token…")
             # blocking – run in executor
             res = await asyncio.to_thread(
                 get_gm_api_jwt,
-                {
-                    "username": self._auth.config["username"],
-                    "password": self._auth.config["password"],
-                    "device_id": self._auth.config["device_id"],
-                    "totp_key": self._auth.config["totp_key"],
-                    "token_location": self._auth.config.get("token_location", "./"),
-                },
-                self._debug,
+                self._auth.config,  # Pass GMAuth's config directly
+                # Pass the debug flag to get_gm_api_jwt, which will be updated
+                # to use logging as well in a subsequent step.
+                self._auth.config.get("debug", False), 
             )
             self._token_resp = res["token"]  # type: ignore[index]
             self._decoded_payload = res["decoded_payload"]  # type: ignore[index]
@@ -116,12 +120,10 @@ class OnStar:
             "Authorization": f"Bearer {self._token_resp['access_token']}",
         }
         url = f"{API_BASE}{path}"
-        if self._debug:
-            print(f"[OnStar] {method} {url}")
+        logger.debug("%s %s", method, url)
         async with httpx.AsyncClient() as client:
             r = await client.request(method, url, headers=headers, json=json_body)
-            if self._debug:
-                print(f"[OnStar] → status={r.status_code}")
+            logger.debug("→ status=%s", r.status_code)
             r.raise_for_status()
             return r.json()
 
