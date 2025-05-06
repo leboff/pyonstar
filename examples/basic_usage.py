@@ -27,11 +27,11 @@ async def main():
     onstar = OnStar(
         username=os.environ.get("ONSTAR_USERNAME"),
         password=os.environ.get("ONSTAR_PASSWORD"),
-        device_id=os.environ.get("ONSTAR_DEVICE_ID"),
+        device_id=os.environ.get("ONSTAR_DEVICE_ID"),  # Must be a UUID4 (generate at https://www.uuidgenerator.net/version4)
         vin=os.environ.get("ONSTAR_VIN"),
         onstar_pin=os.environ.get("ONSTAR_PIN"),
         totp_secret=os.environ.get("ONSTAR_TOTP_SECRET"),
-        debug=True  # Set to False for production use
+        debug=os.environ.get("ONSTAR_DEBUG", "false").lower() == "true"
     )
     
     try:

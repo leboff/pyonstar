@@ -27,7 +27,7 @@ To use this library, you'll need:
 |------------|-------------|
 | `username` | Your GM/OnStar account email |
 | `password` | Your account password |
-| `device_id` | A unique identifier (can be a random UUID4) |
+| `device_id` | A unique identifier (must be a UUID4 - can be generated at https://www.uuidgenerator.net/version4) |
 | `vin` | Your vehicle's VIN number |
 | `onstar_pin` | Your OnStar PIN (optional for some operations) |
 | `totp_secret` | 16-character secret used for multi-factor authentication |
@@ -43,7 +43,7 @@ async def main():
     onstar = OnStar(
         username="your_email@example.com",
         password="your_password",
-        device_id="your_device_id", # Can be a random UUID
+        device_id="your_device_id", # Must be a UUID4 (e.g., generated at https://www.uuidgenerator.net/version4)
         vin="YOUR_VEHICLE_VIN",
         onstar_pin="1234",          # Your OnStar PIN
         totp_secret="TOTP_SECRET",  # Your MFA secret

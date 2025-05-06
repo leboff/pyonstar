@@ -12,6 +12,7 @@ This guide provides solutions for common issues you might encounter when using t
 - Double-check your username and password
 - Ensure you're using the correct OnStar PIN
 - Verify that your TOTP secret is correct
+- Make sure your device_id is a valid UUID4 (generate at https://www.uuidgenerator.net/version4)
 - Try logging out and back in to your OnStar account
 - Check if your account is locked due to too many failed attempts
 

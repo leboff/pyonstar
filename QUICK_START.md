@@ -25,7 +25,7 @@ from onstar import OnStar
 onstar = OnStar(
     username="your_email@example.com",
     password="your_password",
-    device_id="your_device_id",  # Can be a random UUID
+    device_id="your_device_id",  # Must be a UUID4 (generate at https://www.uuidgenerator.net/version4)
     vin="YOUR_VEHICLE_VIN",
     onstar_pin="1234",           # Your OnStar PIN
     totp_secret="TOTP_SECRET"    # Your MFA secret

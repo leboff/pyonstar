@@ -60,16 +60,16 @@ def format_diagnostics(diagnostics):
 
 
 async def main():
-    """Main function demonstrating OnStar API diagnostics usage."""
+    """Main function demonstrating OnStar API usage for diagnostics."""
     # Create OnStar client from environment variables
     onstar = OnStar(
         username=os.environ.get("ONSTAR_USERNAME"),
         password=os.environ.get("ONSTAR_PASSWORD"),
-        device_id=os.environ.get("ONSTAR_DEVICE_ID"),
+        device_id=os.environ.get("ONSTAR_DEVICE_ID"),  # Must be a UUID4 (generate at https://www.uuidgenerator.net/version4)
         vin=os.environ.get("ONSTAR_VIN"),
         onstar_pin=os.environ.get("ONSTAR_PIN"),
         totp_secret=os.environ.get("ONSTAR_TOTP_SECRET"),
-        debug=False  # Set to True for verbose logging
+        debug=os.environ.get("ONSTAR_DEBUG", "false").lower() == "true"
     )
     
     try:
