@@ -66,6 +66,11 @@ if __name__ == "__main__":
   - uuid
   - pyotp
 
+## Credits
+
+This project is a Python port of:
+- [OnStarJS](https://github.com/BigThunderSR/OnStarJS) - NodeJS Library for making OnStar API requests
+
 ## License
 
 MIT License - See LICENSE file for details
