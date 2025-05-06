@@ -2,6 +2,8 @@
 
 Unofficial Python package for making OnStar API requests. This is a Python port of the original OnStarJS package.
 
+> **Note:** This project was primarily developed through AI-assisted "vibe-coding" - using AI tools to help port the JavaScript codebase to Python while maintaining the original functionality.
+
 ## Installation
 
 ```bash
