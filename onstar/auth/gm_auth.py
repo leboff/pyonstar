@@ -3,7 +3,6 @@
 import hashlib
 import json
 import logging
-import re
 import secrets
 import time
 from pathlib import Path
@@ -23,9 +22,20 @@ from .constants import (
     FALLBACK_TOKEN_ENDPOINT,
     GM_TOKEN_ENDPOINT,
     COMMON_HEADERS,
+    SELF_ASSERTED_PATH,
+    SELF_ASSERTED_CONFIRMED_PATH,
+    COMBINED_SIGNIN_CONFIRMED_PATH,
+    ACCEPT_HTML_HEADER,
+    ACCEPT_JSON_HEADER,
+    FORM_URLENCODED_HEADER,
+    JSON_HEADER,
+    ORIGIN_HEADER,
+    XML_REQUEST_HEADER,
+    TOKEN_REFRESH_BUFFER,
+    GM_TOKEN_SCOPE,
 )
 from .types import GMAuthConfig, TokenSet, GMAPITokenResponse, DecodedPayload
-from .utils import urlsafe_b64encode
+from .utils import urlsafe_b64encode, is_token_valid, regex_extract, build_custlogin_url
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +101,8 @@ class GMAuth:
 
         # ── GET authorization page – extract CSRF + transaction IDs ──
         resp = self._get_request(auth_url)
-        csrf = self._regex_extract(resp.text, r'\"csrf\":\"(.*?)\"')
-        trans_id = self._regex_extract(resp.text, r'\"transId\":\"(.*?)\"')
+        csrf = regex_extract(resp.text, r'\"csrf\":\"(.*?)\"')
+        trans_id = regex_extract(resp.text, r'\"transId\":\"(.*?)\"')
         if not csrf or not trans_id:
             raise RuntimeError("Failed to locate csrf or transId in authorization page")
 
@@ -171,7 +181,7 @@ class GMAuth:
                 logger.debug(f"[GMAuth] Fetching OIDC discovery metadata → {DISCOVERY_URL}")
             resp = self._session.get(
                 DISCOVERY_URL,
-                headers={"Accept": "application/json"},
+                headers=JSON_HEADER,
                 timeout=10,
             )
             resp.raise_for_status()
@@ -192,12 +202,9 @@ class GMAuth:
         if self.debug:
             logger.debug(f"[GMAuth][GET ] {url}")
         # COMMON_HEADERS are already on self._session.headers.
-        request_specific_headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
         resp = self._session.get(
             url,
-            headers=request_specific_headers,
+            headers=ACCEPT_HTML_HEADER,
             allow_redirects=False,
         )
         resp.raise_for_status()
@@ -209,11 +216,11 @@ class GMAuth:
 
         # COMMON_HEADERS are already on self._session.headers.
         request_specific_headers = {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Origin": "https://custlogin.gm.com",
+            **FORM_URLENCODED_HEADER,
+            **ACCEPT_JSON_HEADER,
+            **ORIGIN_HEADER,
+            **XML_REQUEST_HEADER,
             "x-csrf-token": csrf_token,
-            "X-Requested-With": "XMLHttpRequest",
             **(extra_headers if extra_headers else {}),
         }
         
@@ -232,8 +239,8 @@ class GMAuth:
             logger.debug(f"[GMAuth][POST-OAuthToken] {url} data={data}")
 
         request_specific_headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
+            **FORM_URLENCODED_HEADER,
+            **JSON_HEADER,
         }
         
         resp = self._session.post(
@@ -252,11 +259,11 @@ class GMAuth:
     # ------------------------------------------------------------------
 
     def _submit_credentials(self, csrf: str, trans_id: str) -> None:
-        url = (
-            "https://custlogin.gm.com/gmb2cprod.onmicrosoft.com/"
-            "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn/SelfAsserted"
-            f"?tx={trans_id}&p=B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
-        )
+        url = build_custlogin_url(SELF_ASSERTED_PATH, {
+            "tx": trans_id,
+            "p": "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
+        })
+        
         data = {
             "request_type": "RESPONSE",
             "logonIdentifier": self.config["username"],
@@ -267,15 +274,18 @@ class GMAuth:
     def _handle_mfa(self, csrf: str, trans_id: str) -> Tuple[str, str]:
         # csrf and trans_id are from the step prior to loading the MFA page.
         # Step 1: load MFA page to grab new csrf / transId for OTP submission
-        url = (
-            "https://custlogin.gm.com/gmb2cprod.onmicrosoft.com/"
-            "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn/api/CombinedSigninAndSignup/confirmed"
-            f"?rememberMe=true&csrf_token={csrf}&tx={trans_id}&p=B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
-        )
+        url = build_custlogin_url(COMBINED_SIGNIN_CONFIRMED_PATH, {
+            "rememberMe": "true",
+            "csrf_token": csrf,
+            "tx": trans_id,
+            "p": "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
+        })
+        
         resp = self._get_request(url)
+        
         # These are the new CSRF and TransID to be used for submitting the OTP
-        csrf_for_otp = self._regex_extract(resp.text, r"\"csrf\":\"(.*?)\"")
-        trans_id_for_otp = self._regex_extract(resp.text, r"\"transId\":\"(.*?)\"")
+        csrf_for_otp = regex_extract(resp.text, r"\"csrf\":\"(.*?)\"")
+        trans_id_for_otp = regex_extract(resp.text, r"\"transId\":\"(.*?)\"")
         if not csrf_for_otp or not trans_id_for_otp:
             raise RuntimeError("Failed to extract csrf/transId during MFA GET step for OTP submission")
 
@@ -291,11 +301,11 @@ class GMAuth:
             raise RuntimeError(f"Failed to generate OTP: {e}") from e
 
         # Step 3: Submit OTP code
-        post_url = (
-            f"https://custlogin.gm.com/gmb2cprod.onmicrosoft.com/"
-            f"B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn/SelfAsserted?"
-            f"tx={trans_id_for_otp}&p=B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
-        )
+        post_url = build_custlogin_url(SELF_ASSERTED_PATH, {
+            "tx": trans_id_for_otp, 
+            "p": "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
+        })
+        
         post_data = {
             "otpCode": otp,
             "request_type": "RESPONSE",
@@ -311,11 +321,11 @@ class GMAuth:
         Uses the /api/SelfAsserted/confirmed endpoint pattern observed in working TS code.
         """
         # URL based on TypeScript implementation:
-        url = (
-            "https://custlogin.gm.com/gmb2cprod.onmicrosoft.com/"
-            "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn/api/SelfAsserted/confirmed"
-            f"?csrf_token={csrf}&tx={trans_id}&p=B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
-        )
+        url = build_custlogin_url(SELF_ASSERTED_CONFIRMED_PATH, {
+            "csrf_token": csrf,
+            "tx": trans_id,
+            "p": "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
+        })
 
         resp = self._get_request(url)
         
@@ -334,7 +344,7 @@ class GMAuth:
         if not location:
             raise RuntimeError("Auth code redirect Location header missing")
 
-        code = self._regex_extract(location, r"code=(.*?)(&|$)")
+        code = regex_extract(location, r"code=(.*?)(&|$)")
         return code
 
     # ------------------------------------------------------------------
@@ -388,13 +398,9 @@ class GMAuth:
     # GM API token exchange
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _token_is_valid(token: GMAPITokenResponse) -> bool:
-        return token.get("expires_at", 0) > int(time.time()) + 5 * 60
-
     def _get_gm_api_token(self, token_set: TokenSet) -> GMAPITokenResponse:
         # Cached & valid?
-        if self._current_gm_token and self._token_is_valid(self._current_gm_token):
+        if self._current_gm_token and is_token_valid(self._current_gm_token, TOKEN_REFRESH_BUFFER):
             if self.debug:
                 logger.debug("[GMAuth] Using cached GM API token")
             return self._current_gm_token
@@ -406,7 +412,7 @@ class GMAuth:
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "subject_token": token_set["access_token"],
             "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
-            "scope": "msso role_owner priv onstar gmoc user user_trailer",
+            "scope": GM_TOKEN_SCOPE,
             "device_id": self.config["device_id"],
         }
         resp = self._post_oauth_token_request(GM_TOKEN_ENDPOINT, data)
@@ -462,7 +468,7 @@ class GMAuth:
                 if self.debug:
                     logger.debug("[GMAuth] Stored GM token belongs to another user – ignoring")
                 return
-            if self._token_is_valid(gm_token):
+            if is_token_valid(gm_token, TOKEN_REFRESH_BUFFER):
                 self._current_gm_token = gm_token
                 if self.debug:
                     logger.debug("[GMAuth] Loaded valid GM token from disk")
@@ -484,7 +490,7 @@ class GMAuth:
                 if self.debug:
                     logger.debug("[GMAuth] Cached MS token belongs to different user – ignoring")
                 return False
-            if stored.get("expires_at", 0) > int(time.time()) + 5 * 60:
+            if is_token_valid(stored, TOKEN_REFRESH_BUFFER):
                 return stored
             # else attempt refresh
             if stored.get("refresh_token"):
@@ -500,12 +506,4 @@ class GMAuth:
         except Exception as exc:
             if self.debug:
                 logger.debug(f"[GMAuth] Error loading MS token: {exc}")
-        return False
-
-    # ------------------------------------------------------------------
-    # Misc helpers
-    # ------------------------------------------------------------------
-
-    def _regex_extract(self, text: str, pattern: str) -> Optional[str]:
-        match = re.search(pattern, text)
-        return match.group(1) if match else None 
+        return False 

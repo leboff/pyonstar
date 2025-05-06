@@ -53,4 +53,24 @@ USER_AGENT = (
 COMMON_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "User-Agent": USER_AGENT,
-} 
+}
+
+# API Path Constants
+AUTH_FLOW_PATH = "B2C_1A_SEAMLESS_MOBILE_SignUpOrSignIn"
+SELF_ASSERTED_PATH = f"{AUTH_FLOW_PATH}/SelfAsserted"
+SELF_ASSERTED_CONFIRMED_PATH = f"{AUTH_FLOW_PATH}/api/SelfAsserted/confirmed"
+COMBINED_SIGNIN_CONFIRMED_PATH = f"{AUTH_FLOW_PATH}/api/CombinedSigninAndSignup/confirmed"
+
+# Common Headers for API Requests
+ACCEPT_HTML_HEADER = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+ACCEPT_JSON_HEADER = {"Accept": "application/json, text/javascript, */*; q=0.01"}
+FORM_URLENCODED_HEADER = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+JSON_HEADER = {"Accept": "application/json"}
+ORIGIN_HEADER = {"Origin": "https://custlogin.gm.com"}
+XML_REQUEST_HEADER = {"X-Requested-With": "XMLHttpRequest"}
+
+# Default token refresh buffer in seconds (5 minutes)
+TOKEN_REFRESH_BUFFER = 300
+
+# GM token scopes
+GM_TOKEN_SCOPE = "msso role_owner priv onstar gmoc user user_trailer" 
