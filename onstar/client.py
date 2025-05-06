@@ -253,7 +253,9 @@ class OnStar:
         retry_delay: float = 2.0,
         current_retry: int = 0,
         check_request_status: bool | None = None,
-        is_status_check: bool = False
+        is_status_check: bool = False,
+        poll_count: int = 0,
+        max_polls: int | None = None
     ) -> Dict[str, Any]:
         """Make an authenticated request to the OnStar API.
         
@@ -275,6 +277,10 @@ class OnStar:
             Whether to check and poll for command status completion
         is_status_check
             Whether this is a status check request (used internally)
+        poll_count
+            Current poll attempt count (used internally)
+        max_polls
+            Maximum number of poll attempts (None = unlimited)
             
         Returns
         -------
@@ -323,7 +329,9 @@ class OnStar:
                                 max_retries=max_retries, retry_delay=retry_delay,
                                 current_retry=current_retry + 1,
                                 check_request_status=check_request_status,
-                                is_status_check=is_status_check
+                                is_status_check=is_status_check,
+                                poll_count=poll_count,
+                                max_polls=max_polls
                             )
                     except Exception as e:
                         logger.error(f"Error parsing error response: {e}")
@@ -334,7 +342,7 @@ class OnStar:
 
                 # Handle command status polling if enabled and not already a status check
                 should_check_status = check_request_status if check_request_status is not None else self._check_request_status
-                if should_check_status and not is_status_check and isinstance(response_data, dict):
+                if should_check_status and isinstance(response_data, dict):
                     command_response = response_data.get("commandResponse")
                     
                     if command_response:
@@ -343,30 +351,45 @@ class OnStar:
                         status_url = command_response.get("url")
                         command_type = command_response.get("type")
                         
-                        request_timestamp = time.mktime(time.strptime(request_time, "%Y-%m-%dT%H:%M:%S.%fZ")) if request_time else 0
-                        
                         # Check for command failure
                         if status == CommandResponseStatus.FAILURE.value:
                             logger.error("Command failed: %s", response_data)
                             raise RuntimeError(f"Command failed: {response_data}")
                         
-                        # Check for command timeout
-                        current_time = time.time()
-                        if current_time >= request_timestamp + self._request_polling_timeout_seconds:
-                            logger.error("Command timed out after %s seconds", self._request_polling_timeout_seconds)
-                            raise RuntimeError(f"Command timed out after {self._request_polling_timeout_seconds} seconds")
+                        # If we have a success status with body data, return it
+                        if status == CommandResponseStatus.SUCCESS.value and "body" in command_response:
+                            return response_data
                         
-                        # Follow up on in-progress commands
-                        if status == CommandResponseStatus.IN_PROGRESS.value and command_type != "connect" and status_url:
-                            logger.debug("Command in progress. Polling status from: %s", status_url)
+                        # Check for maximum polls if specified
+                        if max_polls is not None and poll_count >= max_polls:
+                            logger.warning(f"Reached maximum poll count ({max_polls}), returning current response")
+                            return response_data
+                        
+                        # Check for command timeout based on request timestamp if available
+                        if request_time:
+                            request_timestamp = time.mktime(time.strptime(request_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
+                            current_time = time.time()
+                            if current_time >= request_timestamp + self._request_polling_timeout_seconds:
+                                logger.error("Command timed out after %s seconds", self._request_polling_timeout_seconds)
+                                raise RuntimeError(f"Command timed out after {self._request_polling_timeout_seconds} seconds")
+                        
+                        # For "connect" command, we don't continue polling
+                        if command_type == "connect":
+                            return response_data
+                        
+                        # For all other commands in non-success states with status URL, continue polling
+                        if status_url and status != CommandResponseStatus.SUCCESS.value:
+                            logger.debug(f"Command {command_type} in {status} state. Polling status from: {status_url}")
                             await self._check_request_pause()
                             
-                            # Use the full status URL directly instead of trying to extract parts
+                            # Continue polling with incremented poll count
                             return await self._api_request(
                                 "GET", 
                                 status_url,
                                 check_request_status=should_check_status,
-                                is_status_check=True
+                                is_status_check=True,
+                                poll_count=poll_count + 1,
+                                max_polls=max_polls
                             )
                 
                 return response_data
@@ -573,7 +596,29 @@ class OnStar:
         """Get the vehicle's charger power level."""
         return await self.execute_command("getChargerPowerLevel")
         
-    async def diagnostics(self, options: DiagnosticsRequestOptions = None) -> Dict[str, Any]:
+    def get_supported_diagnostics(self) -> List[str]:
+        """Get the list of diagnostic items supported by the vehicle.
+        
+        Returns
+        -------
+        List[str]
+            List of supported diagnostic item names
+            
+        Notes
+        -----
+        This method requires get_account_vehicles() to be called first.
+        """
+        supported_diagnostics = []
+        command_data = self.get_command_data("diagnostics")
+        
+        if (command_data and "commandData" in command_data and 
+                "supportedDiagnostics" in command_data["commandData"] and 
+                "supportedDiagnostic" in command_data["commandData"]["supportedDiagnostics"]):
+            supported_diagnostics = command_data["commandData"]["supportedDiagnostics"]["supportedDiagnostic"]
+            
+        return supported_diagnostics
+
+    async def diagnostics(self, options: DiagnosticsRequestOptions = None, timeout_seconds: int = 180, max_polls: int = None) -> Dict[str, Any]:
         """Get diagnostic data from the vehicle.
         
         By default, this method will retrieve all supported diagnostic items.
@@ -584,6 +629,10 @@ class OnStar:
         options
             Optional parameters for the diagnostics command:
             - diagnostic_item: List of specific diagnostic items to request
+        timeout_seconds
+            Maximum time in seconds to wait for diagnostics results (default: 180)
+        max_polls
+            Maximum number of polling attempts (None = unlimited)
         
         Returns
         -------
@@ -599,13 +648,8 @@ class OnStar:
             logger.error("Diagnostics command not available for this vehicle")
             raise ValueError("Diagnostics command not available for this vehicle")
             
-        # Get supported diagnostics from command data
-        command_data = self.get_command_data("diagnostics")
-        supported_diagnostics = []
-        
-        if (command_data and "supportedDiagnostics" in command_data and 
-                "supportedDiagnostic" in command_data["supportedDiagnostics"]):
-            supported_diagnostics = command_data["supportedDiagnostics"]["supportedDiagnostic"]
+        # Get supported diagnostics
+        supported_diagnostics = self.get_supported_diagnostics()
         
         if not supported_diagnostics:
             logger.warning("No supported diagnostics found for this vehicle")
@@ -635,7 +679,25 @@ class OnStar:
             }
         }
         
-        return await self.execute_command("diagnostics", body)
+        # Save current polling timeout
+        original_timeout = self._request_polling_timeout_seconds
+        
+        try:
+            # Set extended timeout for diagnostics command
+            self._request_polling_timeout_seconds = timeout_seconds
+            logger.info(f"Using extended timeout of {timeout_seconds} seconds for diagnostics")
+            
+            # Make the API request directly with polling enabled and max_polls parameter
+            return await self._api_request(
+                "POST",
+                self._get_command_url("diagnostics"),
+                json_body=body,
+                check_request_status=True,
+                max_polls=max_polls
+            )
+        finally:
+            # Restore original timeout
+            self._request_polling_timeout_seconds = original_timeout
         
     async def location(self) -> Dict[str, Any]:
         """Get the vehicle's current location."""
