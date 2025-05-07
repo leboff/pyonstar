@@ -60,12 +60,10 @@ if __name__ == "__main__":
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Required packages (automatically installed):
-  - requests
+  - httpx
   - pyjwt
-  - python-dotenv
-  - uuid
   - pyotp
 
 ## Credits

@@ -2,6 +2,34 @@
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "onstar"
+version = "0.0.1"
+description = "Unofficial package for making OnStar API requests"
+readme = "README.md"
+authors = [
+    {name = "Bryan Leboff", email = "leboff@gmail.com"}
+]
+requires-python = ">=3.10"
+license = {text = "MIT License"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "httpx>=0.24.0",
+    "pyjwt>=2.8.0",
+    "pyotp>=2.9.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/leboff/pyonstar"
+"Bug Tracker" = "https://github.com/leboff/pyonstar/issues"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
@@ -14,7 +42,7 @@ addopts = "--strict-markers -v"
 
 [tool.black]
 line-length = 100
-target-version = ["py38"]
+target-version = ["py310"]
 
 [tool.isort]
 profile = "black"
