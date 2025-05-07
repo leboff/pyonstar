@@ -19,7 +19,7 @@ class OnStarAPIClient:
         self,
         *,
         request_polling_timeout_seconds: int = 90,
-        request_polling_interval_seconds: int = 6,
+        request_polling_interval_seconds: int = 15,
         debug: bool = False
     ) -> None:
         """Initialize OnStar API client.
