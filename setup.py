@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="onstar",
+    name="pyonstar",
     version="0.0.1",
     description="Unofficial package for making OnStar API requests",
     author="Bryan Leboff",

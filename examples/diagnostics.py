@@ -9,8 +9,8 @@ import os
 import logging
 import json
 from dotenv import load_dotenv
-from onstar import OnStar
-from onstar.client import DiagnosticRequestItem
+from pyonstar import OnStar
+from pyonstar.client import DiagnosticRequestItem
 
 # Load environment variables from .env file
 load_dotenv()

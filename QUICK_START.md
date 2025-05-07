@@ -16,7 +16,7 @@ pip install onstar
 
 ```python
 import asyncio
-from onstar import OnStar
+from pyonstar import OnStar
 ```
 
 2. Create an OnStar client instance:
@@ -65,8 +65,8 @@ Here's a complete example that puts it all together:
 import asyncio
 import uuid
 import os
-from onstar import OnStar
-from onstar.client import DiagnosticRequestItem, AlertRequestAction
+from pyonstar import OnStar
+from pyonstar.client import DiagnosticRequestItem, AlertRequestAction
 
 # Generate a random device ID if you don't have one
 # Note: It's better to keep using the same device ID once generated

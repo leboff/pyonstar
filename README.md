@@ -7,14 +7,14 @@ Unofficial Python package for making OnStar API requests. This is a Python port 
 ## Installation
 
 ```bash
-pip install onstar
+pip install pyonstar
 ```
 
 ## Usage
 
 ```python
 import asyncio
-from onstar import OnStar
+from pyonstar import OnStar
 
 async def main():
     # Create OnStar instance
@@ -91,7 +91,7 @@ This project uses pytest for testing. To run the tests:
 
 3. Run tests with coverage:
    ```bash
-   pytest --cov=onstar
+   pytest --cov=pyonstar
    ```
 
 ## Contributing

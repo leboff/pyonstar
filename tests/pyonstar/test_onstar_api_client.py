@@ -7,8 +7,8 @@ import time
 import json
 import datetime
 
-from onstar.api import OnStarAPIClient
-from onstar.types import CommandResponseStatus
+from pyonstar.api import OnStarAPIClient
+from pyonstar.types import CommandResponseStatus
 
 
 @pytest.fixture

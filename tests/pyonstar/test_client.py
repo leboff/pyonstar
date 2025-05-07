@@ -3,14 +3,14 @@ import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from onstar.client import OnStar
-from onstar.types import DiagnosticsRequestOptions, CommandResponseStatus
+from pyonstar.client import OnStar
+from pyonstar.types import DiagnosticsRequestOptions, CommandResponseStatus
 
 
 @pytest.fixture
 def onstar_client(mock_gm_auth):
     """Create an OnStar client with a mocked GMAuth instance."""
-    with patch('onstar.client.GMAuth', return_value=mock_gm_auth):
+    with patch('pyonstar.client.GMAuth', return_value=mock_gm_auth):
         client = OnStar(
             username="test@example.com",
             password="password123",
@@ -147,7 +147,7 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request, patch('onstar.commands.CommandFactory.lock_door') as mock_factory:
+        ) as mock_request, patch('pyonstar.commands.CommandFactory.lock_door') as mock_factory:
             # Set up factory to return expected values
             mock_factory.side_effect = lambda opts: {"lockDoorRequest": {"delay": 0 if not opts else opts.get("delay", 0)}}
             
@@ -194,7 +194,7 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request, patch('onstar.commands.CommandFactory.unlock_door') as mock_factory:
+        ) as mock_request, patch('pyonstar.commands.CommandFactory.unlock_door') as mock_factory:
             # Set up factory to return expected values
             mock_factory.side_effect = lambda opts: {"unlockDoorRequest": {"delay": 0 if not opts else opts.get("delay", 0)}}
             
@@ -540,7 +540,7 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_diagnostics_response
-        ) as mock_request, patch('onstar.commands.CommandFactory.diagnostics') as mock_factory:
+        ) as mock_request, patch('pyonstar.commands.CommandFactory.diagnostics') as mock_factory:
             # Set up factory to return expected values
             mock_factory.side_effect = lambda items: {"diagnosticsRequest": {"diagnosticItem": items}}
             
@@ -588,7 +588,7 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_diagnostics_response
-        ) as mock_request, patch('onstar.commands.CommandFactory.diagnostics') as mock_factory:
+        ) as mock_request, patch('pyonstar.commands.CommandFactory.diagnostics') as mock_factory:
             # Set up factory to return expected values
             mock_factory.side_effect = lambda items: {"diagnosticsRequest": {"diagnosticItem": items}}
             
@@ -663,7 +663,7 @@ class TestOnStarClient:
             options = {"diagnostic_item": ["UNSUPPORTED_ITEM", "ODOMETER"]}
             
             # Mock warning logs
-            with patch('onstar.client.logger.warning') as mock_warning:
+            with patch('pyonstar.client.logger.warning') as mock_warning:
                 result = await onstar_client.diagnostics(options=options)
                 
                 # Verify warnings were logged
@@ -861,7 +861,7 @@ class TestOnStarClient:
         with patch.object(
             onstar_client, '_api_request', new_callable=AsyncMock,
             return_value=mock_command_response
-        ) as mock_request, patch('onstar.commands.CommandFactory.set_hvac_settings') as mock_factory:
+        ) as mock_request, patch('pyonstar.commands.CommandFactory.set_hvac_settings') as mock_factory:
             # Set up factory to return expected values
             mock_factory.side_effect = lambda ac_mode, heated_steering_wheel: {
                 "hvacSettings": {
@@ -921,8 +921,8 @@ class TestOnStarClient:
 
     def test_api_client_initialization(self, mock_gm_auth):
         """Test that the OnStarAPIClient is properly initialized."""
-        with patch('onstar.client.GMAuth', return_value=mock_gm_auth), \
-             patch('onstar.client.OnStarAPIClient') as mock_api_client_class:
+        with patch('pyonstar.client.GMAuth', return_value=mock_gm_auth), \
+             patch('pyonstar.client.OnStarAPIClient') as mock_api_client_class:
             # Initialize the client
             client = OnStar(
                 username="test@example.com",

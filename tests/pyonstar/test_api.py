@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from onstar.auth.api import get_gm_api_jwt
+from pyonstar.auth.api import get_gm_api_jwt
 
 
 class TestApiModule:

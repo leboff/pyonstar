@@ -36,7 +36,7 @@ To use this library, you'll need:
 
 ```python
 import asyncio
-from onstar import OnStar
+from pyonstar import OnStar
 
 async def main():
     # Create OnStar instance
@@ -191,7 +191,7 @@ Trigger vehicle alerts (horn, lights, etc.)
 result = await onstar.alert()
 
 # Custom alert with options
-from onstar.client import AlertRequestAction, AlertRequestOverride
+from pyonstar.client import AlertRequestAction, AlertRequestOverride
 
 result = await onstar.alert({
     "action": [AlertRequestAction.HONK, AlertRequestAction.FLASH],
@@ -232,7 +232,7 @@ diagnostics = onstar.get_supported_diagnostics()
 Request specific diagnostic information from your vehicle.
 
 ```python
-from onstar.client import DiagnosticRequestItem
+from pyonstar.client import DiagnosticRequestItem
 
 # Request specific diagnostics
 result = await onstar.diagnostics({
@@ -265,7 +265,7 @@ result = await onstar.diagnostics()
 Override the charging schedule for your electric vehicle.
 
 ```python
-from onstar.client import ChargeOverrideMode
+from pyonstar.client import ChargeOverrideMode
 
 result = await onstar.charge_override({
     "mode": ChargeOverrideMode.CHARGE_NOW
@@ -290,7 +290,7 @@ profile = await onstar.get_charging_profile()
 Set a new charging profile for your electric vehicle.
 
 ```python
-from onstar.client import ChargingProfileChargeMode, ChargingProfileRateType
+from pyonstar.client import ChargingProfileChargeMode, ChargingProfileRateType
 
 # Use IMMEDIATE mode
 result = await onstar.set_charging_profile({

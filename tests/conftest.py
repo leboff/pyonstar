@@ -2,6 +2,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock, patch
+from pyonstar.auth import GMAuth
 
 @pytest.fixture
 def mock_gm_auth():

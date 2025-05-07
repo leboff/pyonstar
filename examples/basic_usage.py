@@ -8,7 +8,7 @@ import asyncio
 import os
 import logging
 from dotenv import load_dotenv
-from onstar import OnStar
+from pyonstar import OnStar
 
 # Load environment variables from .env file
 load_dotenv()

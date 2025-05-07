@@ -8,7 +8,7 @@ class TestGMAuth:
     
     def test_init(self):
         """Test initialization of GMAuth."""
-        from onstar.auth import GMAuth
+        from pyonstar.auth import GMAuth
         
         config = {
             "username": "test@example.com",
@@ -36,7 +36,7 @@ def mock_jwt_decode():
 @pytest.fixture
 def mock_gmauth_authenticate():
     """Mock GMAuth.authenticate to avoid actual authentication."""
-    with patch('onstar.auth.gm_auth.GMAuth.authenticate') as mock:
+    with patch('pyonstar.auth.gm_auth.GMAuth.authenticate') as mock:
         mock.return_value = {
             "access_token": "test_access_token",
             "refresh_token": "test_refresh_token",
@@ -49,7 +49,7 @@ def mock_gmauth_authenticate():
 @pytest.mark.asyncio
 async def test_get_gm_api_jwt(mock_jwt_decode, mock_gmauth_authenticate):
     """Test the get_gm_api_jwt function with mocked dependencies."""
-    from onstar.auth import get_gm_api_jwt
+    from pyonstar.auth import get_gm_api_jwt
     
     config = {
         "username": "test@example.com",

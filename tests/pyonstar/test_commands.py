@@ -1,8 +1,8 @@
 """Tests for the CommandFactory."""
 import pytest
 
-from onstar.commands import CommandFactory
-from onstar.types import (
+from pyonstar.commands import CommandFactory
+from pyonstar.types import (
     AlertRequestAction,
     AlertRequestOverride,
     ChargeOverrideMode,

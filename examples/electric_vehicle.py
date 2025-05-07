@@ -8,8 +8,8 @@ import asyncio
 import os
 import logging
 from dotenv import load_dotenv
-from onstar import OnStar
-from onstar.client import ChargeOverrideMode, ChargingProfileChargeMode, ChargingProfileRateType
+from pyonstar import OnStar
+from pyonstar.client import ChargeOverrideMode, ChargingProfileChargeMode, ChargingProfileRateType
 
 # Load environment variables from .env file
 load_dotenv()

@@ -1,4 +1,4 @@
-"""OnStar Python Client.
+"""PyOnStar Python Client.
 
 This library provides an async Python client for the OnStar API.
 """

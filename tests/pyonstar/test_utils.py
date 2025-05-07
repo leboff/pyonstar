@@ -3,7 +3,7 @@ import pytest
 import time
 from unittest.mock import patch
 
-from onstar.auth.utils import regex_extract, build_custlogin_url, is_token_valid, urlsafe_b64encode
+from pyonstar.auth.utils import regex_extract, build_custlogin_url, is_token_valid, urlsafe_b64encode
 
 
 class TestUtils:
