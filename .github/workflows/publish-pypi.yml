@@ -47,4 +47,38 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         repository-url: https://test.pypi.org/legacy/
-        skip-existing: true 
+        skip-existing: true
+
+  create-release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-publish
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    
+    - name: Get Changelog Entry
+      id: changelog_entry
+      uses: mindsers/changelog-reader-action@v2
+      with:
+        version: ${{ steps.get_version.outputs.VERSION }}
+        path: ./CHANGELOG.md
+      continue-on-error: true
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release v${{ steps.get_version.outputs.VERSION }}
+        body: ${{ steps.changelog_entry.outputs.changes || github.event.head_commit.message }}
+        draft: false
+        prerelease: false
+        files: |
+          dist/* 
