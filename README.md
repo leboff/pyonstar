@@ -1,4 +1,4 @@
-# OnStar Python
+# PyOnStar
 
 Unofficial Python package for making OnStar API requests. This is a Python port of the original OnStarJS package.
 
