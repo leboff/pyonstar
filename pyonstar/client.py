@@ -152,18 +152,6 @@ class OnStar:
             )
             self._token_resp = cast(Dict[str, Any], res["token"])
             self._decoded_payload = cast(DecodedPayload, res["decoded_payload"])
-            self._validate_vin_authorization()
-
-    def _validate_vin_authorization(self) -> None:
-        """Validate that the configured VIN is authorized for this account."""
-        if not self._decoded_payload:
-            raise RuntimeError("Token payload not available")
-            
-        vins = [v["vin"].upper() for v in self._decoded_payload["vehs"]]
-        if self._vin not in vins:
-            raise RuntimeError(
-                f"Provided VIN {self._vin} is not authorized – available: {vins}"
-            )
 
     def _get_command_url(self, command_name: str) -> str:
         """Get the URL for a specific command from the available commands."""
