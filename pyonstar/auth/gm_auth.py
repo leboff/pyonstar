@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class GMAuth:
     """Re-implementation of the TypeScript *GMAuth* class in Python using async httpx."""
 
-    def __init__(self, config: GMAuthConfig, debug: bool = False):
+    def __init__(self, config: GMAuthConfig, debug: bool = False, http_client: httpx.AsyncClient = None):
         self.config: GMAuthConfig = config
         # Ensure token_location is set and paths exist
         token_location = Path(self.config.get("token_location", "./"))
@@ -68,6 +68,42 @@ class GMAuth:
         
         # Cookie jar for session persistence
         self._cookies = httpx.Cookies()
+        
+        # Custom HTTP client (if provided)
+        self._http_client = http_client
+        self._client_provided = http_client is not None
+
+    # ------------------------------------------------------------------
+    # HTTP request helper methods
+    # ------------------------------------------------------------------
+    
+    async def _make_request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Make an HTTP request using either the provided client or a new one.
+        
+        Args:
+            method: HTTP method ('GET', 'POST', etc.)
+            url: Request URL
+            **kwargs: Additional arguments to pass to the request method
+            
+        Returns:
+            httpx.Response: The response object
+        """
+        # Extract client kwargs from request kwargs
+        client_kwargs = {}
+        request_kwargs = kwargs.copy()
+        
+        # Extract the common client parameters if present
+        for param in ['cookies', 'follow_redirects']:
+            if param in request_kwargs:
+                client_kwargs[param] = request_kwargs.pop(param)
+        
+        if self._http_client:
+            # Use the provided client with all kwargs
+            return await getattr(self._http_client, method.lower())(url, **kwargs)
+        else:
+            # Create a new client with extracted kwargs, then make the request
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                return await getattr(client, method.lower())(url, **request_kwargs)
 
     # ---------------------------------------------------------------------
     # Public API
@@ -192,14 +228,16 @@ class GMAuth:
         try:
             if self.debug:
                 logger.debug(f"[GMAuth] Fetching OIDC discovery metadata → {DISCOVERY_URL}")
-                
-            async with httpx.AsyncClient(headers={**COMMON_HEADERS, **JSON_HEADER}) as client:
-                resp = await client.get(DISCOVERY_URL, timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
-                auth_ep = data.get("authorization_endpoint", FALLBACK_AUTHORIZATION_ENDPOINT)
-                token_ep = data.get("token_endpoint", FALLBACK_TOKEN_ENDPOINT)
-                return auth_ep, token_ep
+            
+            # Make a request using the helper
+            headers = {**COMMON_HEADERS, **JSON_HEADER}
+            resp = await self._make_request('GET', DISCOVERY_URL, headers=headers, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            auth_ep = data.get("authorization_endpoint", FALLBACK_AUTHORIZATION_ENDPOINT)
+            token_ep = data.get("token_endpoint", FALLBACK_TOKEN_ENDPOINT)
+            return auth_ep, token_ep
         except Exception as exc:
             if self.debug:
                 logger.debug(f"[GMAuth] Discovery failed – falling back to hard-coded endpoints ({exc})")
@@ -216,14 +254,20 @@ class GMAuth:
         
         headers = {**COMMON_HEADERS, **ACCEPT_HTML_HEADER}
         
-        async with httpx.AsyncClient(cookies=self._cookies, follow_redirects=False) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            
-            # Update cookies from response
-            self._update_cookies_from_response(resp)
-            
-            return resp.text
+        # Use the helper method
+        resp = await self._make_request(
+            'GET', 
+            url, 
+            headers=headers, 
+            cookies=self._cookies, 
+            follow_redirects=False
+        )
+        resp.raise_for_status()
+        
+        # Update cookies from response
+        self._update_cookies_from_response(resp)
+        
+        return resp.text
 
     async def _post_request(self, url: str, data: Union[Dict[str, str], str], csrf_token: str, 
                            extra_headers: Optional[Dict[str, str]] = None) -> httpx.Response:
@@ -242,14 +286,21 @@ class GMAuth:
             **(extra_headers if extra_headers else {}),
         }
         
-        async with httpx.AsyncClient(cookies=self._cookies, follow_redirects=False) as client:
-            resp = await client.post(url, data=data, headers=request_specific_headers)
-            resp.raise_for_status()
-            
-            # Update cookies from response
-            self._update_cookies_from_response(resp)
-            
-            return resp
+        # Use the helper method
+        resp = await self._make_request(
+            'POST', 
+            url, 
+            data=data, 
+            headers=request_specific_headers, 
+            cookies=self._cookies, 
+            follow_redirects=False
+        )
+        resp.raise_for_status()
+        
+        # Update cookies from response
+        self._update_cookies_from_response(resp)
+        
+        return resp
 
     async def _post_oauth_token_request(self, url: str, data: Dict[str, str]) -> Dict[str, Any]:
         """Helper for POST requests to OAuth token endpoints."""
@@ -262,17 +313,23 @@ class GMAuth:
             **JSON_HEADER,
         }
         
-        async with httpx.AsyncClient(cookies=self._cookies) as client:
-            resp = await client.post(url, data=data, headers=request_specific_headers)
-            
-            if self.debug:
-                logger.debug(f"[GMAuth] OAuth Token Endpoint Response Status ({url}): {resp.status_code}")
-            resp.raise_for_status()
-            
-            # Update cookies from response
-            self._update_cookies_from_response(resp)
-            
-            return resp.json()
+        # Use the helper method
+        resp = await self._make_request(
+            'POST', 
+            url, 
+            data=data, 
+            headers=request_specific_headers, 
+            cookies=self._cookies
+        )
+        
+        if self.debug:
+            logger.debug(f"[GMAuth] OAuth Token Endpoint Response Status ({url}): {resp.status_code}")
+        resp.raise_for_status()
+        
+        # Update cookies from response
+        self._update_cookies_from_response(resp)
+        
+        return resp.json()
     
     def _update_cookies_from_response(self, response: httpx.Response) -> None:
         """Update the cookie jar with cookies from a response."""
@@ -353,29 +410,36 @@ class GMAuth:
         })
 
         headers = {**COMMON_HEADERS, **ACCEPT_HTML_HEADER}
-        async with httpx.AsyncClient(cookies=self._cookies, follow_redirects=False) as client:
-            resp = await client.get(url, headers=headers)
-            
-            self._update_cookies_from_response(resp)
-            
-            if self.debug:
-                logger.debug(f"[GMAuth] Auth Code GET Response Status: {resp.status_code}")
-                logger.debug(f"[GMAuth] Auth Code GET Response Headers: {resp.headers}")
-                if resp.status_code != 302:
-                    logger.debug(f"[GMAuth] Auth Code GET Response Body (first 500):\\n{resp.text[:500]}")
-
+        
+        # Use the helper method
+        resp = await self._make_request(
+            'GET', 
+            url, 
+            headers=headers, 
+            cookies=self._cookies, 
+            follow_redirects=False
+        )
+        
+        self._update_cookies_from_response(resp)
+        
+        if self.debug:
+            logger.debug(f"[GMAuth] Auth Code GET Response Status: {resp.status_code}")
+            logger.debug(f"[GMAuth] Auth Code GET Response Headers: {resp.headers}")
             if resp.status_code != 302:
-                if self.debug:
-                    logger.debug(f"[GMAuth] Unexpected status {resp.status_code} fetching auth code.")
-                    logger.debug(f"[GMAuth] Response body:\\n{resp.text[:500]}...") # Log first 500 chars
-                raise RuntimeError(f"Expected redirect when fetching auth code, got {resp.status_code}")
-            
-            location = resp.headers.get("Location") or resp.headers.get("location")
-            if not location:
-                raise RuntimeError("Auth code redirect Location header missing")
+                logger.debug(f"[GMAuth] Auth Code GET Response Body (first 500):\\n{resp.text[:500]}")
 
-            code = regex_extract(location, r"code=(.*?)(&|$)")
-            return code
+        if resp.status_code != 302:
+            if self.debug:
+                logger.debug(f"[GMAuth] Unexpected status {resp.status_code} fetching auth code.")
+                logger.debug(f"[GMAuth] Response body:\\n{resp.text[:500]}...") # Log first 500 chars
+            raise RuntimeError(f"Expected redirect when fetching auth code, got {resp.status_code}")
+        
+        location = resp.headers.get("Location") or resp.headers.get("location")
+        if not location:
+            raise RuntimeError("Auth code redirect Location header missing")
+
+        code = regex_extract(location, r"code=(.*?)(&|$)")
+        return code
 
     # ------------------------------------------------------------------
     # MS tokens

@@ -2,17 +2,20 @@
 
 import asyncio
 import jwt
+from typing import Optional
+import httpx
 
 from .types import GMAuthConfig, DecodedPayload
 from .gm_auth import GMAuth
 
 
-async def get_gm_api_jwt(config: GMAuthConfig, debug: bool = False):
+async def get_gm_api_jwt(config: GMAuthConfig, debug: bool = False, http_client: Optional[httpx.AsyncClient] = None):
     """Convenience wrapper to get a GM API JWT token.
     
     Args:
         config: Configuration for authentication
         debug: Enable debug logging
+        http_client: Optional pre-configured httpx client
         
     Returns:
         dict: Contains token, auth instance, and decoded payload
@@ -25,7 +28,7 @@ async def get_gm_api_jwt(config: GMAuthConfig, debug: bool = False):
         if not config.get(key):
             raise ValueError(f"Missing required configuration key: {key}")
 
-    auth = GMAuth(config, debug=debug)
+    auth = GMAuth(config, debug=debug, http_client=http_client)
     token_resp = await auth.authenticate()
     decoded: DecodedPayload = jwt.decode(
         token_resp["access_token"], options={"verify_signature": False, "verify_aud": False}

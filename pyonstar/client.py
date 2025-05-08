@@ -78,6 +78,10 @@ class OnStar:
         """Initialize OnStar client."""
         self._vin = vin.upper()
         self._setup_logging(debug)
+        
+        # Store the HTTP client for reuse
+        self._http_client = http_client
+        
         self._auth = self._create_auth(
             username=username,
             password=password,
@@ -140,6 +144,7 @@ class OnStar:
                 "token_location": token_location,
             },
             debug=debug,
+            http_client=getattr(self, '_http_client', None),
         )
 
     def _needs_token_refresh(self, token: Dict[str, Any] | None) -> bool:
@@ -155,7 +160,8 @@ class OnStar:
             # Use the async get_gm_api_jwt function
             res = await get_gm_api_jwt(
                 self._auth.config,  # Pass GMAuth's config directly
-                self._auth.config.get("debug", False), 
+                self._auth.config.get("debug", False),
+                http_client=self._http_client,  # Pass the HTTP client
             )
             self._token_resp = cast(Dict[str, Any], res["token"])
             self._decoded_payload = cast(DecodedPayload, res["decoded_payload"])
