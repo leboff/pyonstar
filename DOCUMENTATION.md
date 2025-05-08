@@ -418,3 +418,51 @@ onstar = OnStar(
   - pyjwt
   - pyotp
   - uuid 
+
+## Performance Optimizations
+
+This library includes several performance optimizations to ensure efficient operation, particularly in event-driven environments:
+
+### Asynchronous File I/O
+
+Token storage and retrieval use asynchronous file operations via `aiofiles` to prevent blocking the event loop when reading or writing authentication tokens.
+
+### Non-Blocking HTTP Requests
+
+The HTTP client is configured with proper SSL verification settings to avoid blocking SSL operations in the event loop. A shared client instance is maintained for optimal performance across multiple requests.
+
+### Proper Resource Management
+
+Always use the `close()` method when you're done with the client to properly clean up resources:
+
+```python
+try:
+    # Use the OnStar client...
+finally:
+    await onstar.close()
+```
+
+### Using a Custom HTTP Client
+
+You can provide your own pre-configured httpx AsyncClient for special use cases like Home Assistant integrations where SSL certificate loading should be handled in a specific way:
+
+```python
+# For Home Assistant integrations
+from homeassistant.helpers.httpx_client import get_async_client
+
+# Get a properly configured client from Home Assistant
+http_client = get_async_client(hass)
+
+# Create the OnStar client with the custom HTTP client
+onstar = OnStar(
+    username="your_username",
+    password="your_password",
+    device_id="your_device_id",
+    vin="your_vin",
+    onstar_pin="your_pin",
+    totp_secret="your_totp_secret",
+    http_client=http_client  # Pass the pre-configured client
+)
+```
+
+This is particularly important for Home Assistant integrations to avoid blocking SSL verification warnings, as the Home Assistant helper ensures that SSL certificate loading happens in a thread executor. 

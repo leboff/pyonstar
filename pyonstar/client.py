@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, cast
 
+import httpx
 from .api import OnStarAPIClient
 from .auth import GMAuth, get_gm_api_jwt, DecodedPayload
 from .commands import CommandFactory
@@ -52,6 +53,10 @@ class OnStar:
     debug
         When *True* emits verbose debug output from both *GMAuth* and the high-
         level client.
+    http_client
+        Pre-configured httpx AsyncClient to use (if None, a new one will be created).
+        This is useful for integrations that need to handle SSL certificate loading in
+        a specific way, like Home Assistant.
     """
 
     def __init__(
@@ -68,6 +73,7 @@ class OnStar:
         request_polling_timeout_seconds: int = 90,
         request_polling_interval_seconds: int = 15,
         debug: bool = False,
+        http_client: httpx.AsyncClient = None,
     ) -> None:
         """Initialize OnStar client."""
         self._vin = vin.upper()
@@ -86,6 +92,7 @@ class OnStar:
             request_polling_timeout_seconds=request_polling_timeout_seconds,
             request_polling_interval_seconds=request_polling_interval_seconds,
             debug=debug,
+            http_client=http_client,
         )
         
         # Command status tracking
@@ -449,4 +456,9 @@ class OnStar:
         return await self.execute_command(
             "setHvacSettings", 
             CommandFactory.set_hvac_settings(ac_mode, heated_steering_wheel)
-        ) 
+        )
+
+    async def close(self):
+        """Close the API client and release resources."""
+        if hasattr(self, '_api_client'):
+            await self._api_client.close() 

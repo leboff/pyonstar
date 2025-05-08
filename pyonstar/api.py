@@ -20,7 +20,8 @@ class OnStarAPIClient:
         *,
         request_polling_timeout_seconds: int = 90,
         request_polling_interval_seconds: int = 15,
-        debug: bool = False
+        debug: bool = False,
+        http_client: httpx.AsyncClient = None
     ) -> None:
         """Initialize OnStar API client.
 
@@ -32,10 +33,24 @@ class OnStarAPIClient:
             Time in seconds to wait between status polling requests (default: 6)
         debug
             When *True* emits verbose debug output
+        http_client
+            Pre-configured httpx AsyncClient to use (if None, a new one will be created)
         """
         self._request_polling_timeout_seconds = request_polling_timeout_seconds
         self._request_polling_interval_seconds = request_polling_interval_seconds
         self._debug = debug
+        
+        # Store whether we created the client or if it was provided
+        self._client_provided = http_client is not None
+        # Create a shared client that will be reused across requests
+        # This avoids the blocking SSL verification on each request
+        self._client = http_client if http_client is not None else httpx.AsyncClient(verify=True)
+        
+    async def close(self):
+        """Close the HTTP client session."""
+        # Only close the client if we created it
+        if not self._client_provided:
+            await self._client.aclose()
 
     async def _check_request_pause(self) -> None:
         """Pause between status check requests."""
