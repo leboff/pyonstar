@@ -51,9 +51,6 @@ async def main():
     # Get vehicle diagnostics
     diagnostics = await onstar.diagnostics()
     print(f"Vehicle diagnostics: {diagnostics}")
-    
-    # Always close the client when done
-    await onstar.close()
 
 # Run the async function
 if __name__ == "__main__":
@@ -87,52 +84,48 @@ async def main():
         debug=True  # Set to False in production
     )
     
+    # Get account vehicles
+    print("Getting account vehicles...")
+    vehicles = await onstar.get_account_vehicles()
+    print(f"Found {len(vehicles['vehicles'])} vehicles")
+    
+    # Display available commands
+    vehicle_data = onstar.get_vehicle_data()
+    available_commands = vehicle_data.get("commands", {})
+    print("\nAvailable commands:")
+    for cmd_name in available_commands.keys():
+        print(f"- {cmd_name}")
+    
+    # Ask user what they want to do
+    print("\nWhat would you like to do?")
+    print("1. Lock doors")
+    print("2. Unlock doors")
+    print("3. Start vehicle")
+    print("4. Get vehicle location")
+    print("5. Run vehicle diagnostics")
+    
+    choice = input("Enter your choice (1-5): ")
+    
     try:
-        # Get account vehicles
-        print("Getting account vehicles...")
-        vehicles = await onstar.get_account_vehicles()
-        print(f"Found {len(vehicles['vehicles'])} vehicles")
-        
-        # Display available commands
-        vehicle_data = onstar.get_vehicle_data()
-        available_commands = vehicle_data.get("commands", {})
-        print("\nAvailable commands:")
-        for cmd_name in available_commands.keys():
-            print(f"- {cmd_name}")
-        
-        # Ask user what they want to do
-        print("\nWhat would you like to do?")
-        print("1. Lock doors")
-        print("2. Unlock doors")
-        print("3. Start vehicle")
-        print("4. Get vehicle location")
-        print("5. Run vehicle diagnostics")
-        
-        choice = input("Enter your choice (1-5): ")
-        
-        try:
-            if choice == "1":
-                result = await onstar.lock_door()
-                print(f"Lock result: {result}")
-            elif choice == "2":
-                result = await onstar.unlock_door()
-                print(f"Unlock result: {result}")
-            elif choice == "3":
-                result = await onstar.start()
-                print(f"Start result: {result}")
-            elif choice == "4":
-                result = await onstar.location()
-                print(f"Location: {result}")
-            elif choice == "5":
-                result = await onstar.diagnostics()
-                print(f"Diagnostics: {result}")
-            else:
-                print("Invalid choice")
-        except Exception as e:
-            print(f"Error: {e}")
-    finally:
-        # Always properly close the client when done
-        await onstar.close()
+        if choice == "1":
+            result = await onstar.lock_door()
+            print(f"Lock result: {result}")
+        elif choice == "2":
+            result = await onstar.unlock_door()
+            print(f"Unlock result: {result}")
+        elif choice == "3":
+            result = await onstar.start()
+            print(f"Start result: {result}")
+        elif choice == "4":
+            result = await onstar.location()
+            print(f"Location: {result}")
+        elif choice == "5":
+            result = await onstar.diagnostics()
+            print(f"Diagnostics: {result}")
+        else:
+            print("Invalid choice")
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -163,4 +156,4 @@ load_dotenv()  # Load variables from .env file
 
 - Explore the full [API Documentation](./DOCUMENTATION.md) for more advanced features
 - Check out the [Examples](./examples/) directory for more usage scenarios
-- Join the community to share your experiences and improvements
+- Join the community to share your experiences and improvements 

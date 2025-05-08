@@ -99,11 +99,6 @@ class OnStar:
         self._available_commands: Dict[str, Dict[str, Any]] = {}
         self._vehicle_data: Optional[Dict[str, Any]] = None
 
-    async def close(self):
-        """Close the API client and release resources."""
-        if hasattr(self, '_api_client'):
-            await self._api_client.close()
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
