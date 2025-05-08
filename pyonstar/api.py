@@ -37,13 +37,20 @@ class OnStarAPIClient:
         self._request_polling_timeout_seconds = request_polling_timeout_seconds
         self._request_polling_interval_seconds = request_polling_interval_seconds
         self._debug = debug
-        # Create a shared client that will be reused across requests
-        # This avoids the blocking SSL verification on each request
-        self._client = httpx.AsyncClient(verify=True)
+        # Use lazy initialization - client will be created on first use
+        self._client = None
         
     async def close(self):
         """Close the HTTP client session."""
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    async def _ensure_client(self):
+        """Ensure the HTTP client is initialized."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(verify=True)
+        return self._client
 
     async def _check_request_pause(self) -> None:
         """Pause between status check requests."""
@@ -114,9 +121,12 @@ class OnStarAPIClient:
         if json_body and self._debug:
             logger.debug("Request body: %s", json_body)
         
+        # Ensure client is initialized
+        client = await self._ensure_client()
+        
         # Use the shared client instance
         try:
-            response = await self._client.request(method, url, headers=headers, json=json_body)
+            response = await client.request(method, url, headers=headers, json=json_body)
             logger.debug("→ status=%s", response.status_code)
             
             # Log response body on error
