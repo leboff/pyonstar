@@ -22,7 +22,7 @@ from .types import (
 from .api import OnStarAPIClient
 from .commands import CommandFactory
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 __all__ = [
     "OnStar",
