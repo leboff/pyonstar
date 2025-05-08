@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation improvements
 - Additional examples
 - Improved error handling
+- Added async file I/O using aiofiles to prevent blocking operations
+- Fixed blocking SSL verification in httpx client
+- Added proper resource cleanup with close() method
+- Better performance in asynchronous environments
 
 ## [0.0.1] - 2023-08-22
 ### Added

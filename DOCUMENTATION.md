@@ -50,17 +50,21 @@ async def main():
         debug=False                 # Set to True for verbose logging
     )
     
-    # Get account vehicles
-    vehicles = await onstar.get_account_vehicles()
-    print(vehicles)
-    
-    # Start the vehicle
-    result = await onstar.start()
-    print(result)
-    
-    # Lock the doors
-    result = await onstar.lock_door()
-    print(result)
+    try:
+        # Get account vehicles
+        vehicles = await onstar.get_account_vehicles()
+        print(vehicles)
+        
+        # Start the vehicle
+        result = await onstar.start()
+        print(result)
+        
+        # Lock the doors
+        result = await onstar.lock_door()
+        print(result)
+    finally:
+        # Properly close the client when done to release resources
+        await onstar.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -107,6 +111,20 @@ onstar = OnStar.create({
     "debug": False                 # Optional
 })
 ```
+
+### Resource Management
+
+Always close the OnStar client when you're done with it to properly release resources:
+
+```python
+await onstar.close()
+```
+
+This will:
+- Close the underlying HTTP connection
+- Release any resources associated with the client
+
+For use in frameworks or applications with longer lifecycles (like Home Assistant integrations), make sure to properly close the client when it's no longer needed, typically during component unloading.
 
 ### Vehicle Information
 
@@ -417,4 +435,28 @@ onstar = OnStar(
   - requests
   - pyjwt
   - pyotp
-  - uuid 
+  - uuid
+  - aiofiles (for non-blocking file I/O)
+
+## Performance Optimizations
+
+This library includes several performance optimizations to ensure efficient operation, particularly in event-driven environments:
+
+### Asynchronous File I/O
+
+Token storage and retrieval use asynchronous file operations via `aiofiles` to prevent blocking the event loop when reading or writing authentication tokens.
+
+### Non-Blocking HTTP Requests
+
+The HTTP client is configured with proper SSL verification settings to avoid blocking SSL operations in the event loop. A shared client instance is maintained for optimal performance across multiple requests.
+
+### Proper Resource Management
+
+Always use the `close()` method when you're done with the client to properly clean up resources:
+
+```python
+try:
+    # Use the OnStar client...
+finally:
+    await onstar.close()
+``` 

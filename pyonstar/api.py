@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Dict, Literal, Optional
+import ssl
 
 import httpx
 
@@ -36,6 +37,13 @@ class OnStarAPIClient:
         self._request_polling_timeout_seconds = request_polling_timeout_seconds
         self._request_polling_interval_seconds = request_polling_interval_seconds
         self._debug = debug
+        # Create a shared client that will be reused across requests
+        # This avoids the blocking SSL verification on each request
+        self._client = httpx.AsyncClient(verify=True)
+        
+    async def close(self):
+        """Close the HTTP client session."""
+        await self._client.aclose()
 
     async def _check_request_pause(self) -> None:
         """Pause between status check requests."""
@@ -106,103 +114,103 @@ class OnStarAPIClient:
         if json_body and self._debug:
             logger.debug("Request body: %s", json_body)
         
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.request(method, url, headers=headers, json=json_body)
-                logger.debug("→ status=%s", response.status_code)
-                
-                # Log response body on error
-                if response.status_code >= 400:
-                    logger.error("Response body: %s", response.text)
-                
-                # Check for duplicate request error
-                if response.status_code == 500 and current_retry < max_retries:
-                    try:
-                        error_body = response.json()
-                        if (error_body.get("error", {}).get("code") == "ONS-300" and
-                            "Duplicate vehicle request" in error_body.get("error", {}).get("description", "")):
-                            logger.warning(f"Duplicate request detected, retrying in {retry_delay} seconds...")
-                            await asyncio.sleep(retry_delay)
-                            return await self.api_request(
-                                access_token, method, path, json_body=json_body, 
-                                max_retries=max_retries, retry_delay=retry_delay,
-                                current_retry=current_retry + 1,
-                                check_request_status=check_request_status,
-                                is_status_check=is_status_check,
-                                poll_count=poll_count,
-                                max_polls=max_polls
-                            )
-                    except Exception as e:
-                        logger.error(f"Error parsing error response: {e}")
-                
-                response.raise_for_status()
-                response_data = response.json()
-                
-                if self._debug:
-                    logger.debug("Response data: %s", response_data)
-
-                # Handle command status polling if enabled and not already a status check
-                if check_request_status and isinstance(response_data, dict):
-                    command_response = response_data.get("commandResponse")
-                    
-                    if command_response:
-                        request_time = command_response.get("requestTime")
-                        status = command_response.get("status")
-                        status_url = command_response.get("url")
-                        command_type = command_response.get("type")
-                        
-                        # Check for command failure
-                        if status == CommandResponseStatus.FAILURE.value:
-                            logger.error("Command failed: %s", response_data)
-                            raise RuntimeError(f"Command failed: {response_data}")
-                        
-                        # If we have a success status with body data, return it
-                        if status == CommandResponseStatus.SUCCESS.value and "body" in command_response:
-                            return response_data
-                        
-                        # Check for maximum polls if specified
-                        if max_polls is not None and poll_count >= max_polls:
-                            logger.warning(f"Reached maximum poll count ({max_polls}), returning current response")
-                            return response_data
-                        
-                        # Check for command timeout based on request timestamp if available
-                        if request_time:
-                            request_timestamp = time.mktime(time.strptime(request_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
-                            current_time = time.time()
-                            if current_time >= request_timestamp + self._request_polling_timeout_seconds:
-                                logger.error("Command timed out after %s seconds", self._request_polling_timeout_seconds)
-                                raise RuntimeError(f"Command timed out after {self._request_polling_timeout_seconds} seconds")
-                        
-                        # For "connect" command, we don't continue polling
-                        if command_type == "connect":
-                            return response_data
-                        
-                        # For all other commands in non-success states with status URL, continue polling
-                        if status_url and status != CommandResponseStatus.SUCCESS.value:
-                            logger.debug(f"Command {command_type} in {status} state. Polling status from: {status_url}")
-                            await self._check_request_pause()
-                            
-                            # Continue polling with incremented poll count
-                            return await self.api_request(
-                                access_token,
-                                "GET", 
-                                status_url,
-                                check_request_status=check_request_status,
-                                is_status_check=True,
-                                poll_count=poll_count + 1,
-                                max_polls=max_polls
-                            )
-                
-                return response_data
-            except httpx.HTTPStatusError as e:
-                logger.error("HTTP error: %s", e)
-                # Try to parse the response JSON if possible
+        # Use the shared client instance
+        try:
+            response = await self._client.request(method, url, headers=headers, json=json_body)
+            logger.debug("→ status=%s", response.status_code)
+            
+            # Log response body on error
+            if response.status_code >= 400:
+                logger.error("Response body: %s", response.text)
+            
+            # Check for duplicate request error
+            if response.status_code == 500 and current_retry < max_retries:
                 try:
-                    error_body = e.response.json()
-                    logger.error("Error details: %s", error_body)
-                except Exception:
-                    logger.error("Error response text: %s", e.response.text)
-                raise
-            except Exception as e:
-                logger.error("Request failed: %s", e)
-                raise 
+                    error_body = response.json()
+                    if (error_body.get("error", {}).get("code") == "ONS-300" and
+                        "Duplicate vehicle request" in error_body.get("error", {}).get("description", "")):
+                        logger.warning(f"Duplicate request detected, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        return await self.api_request(
+                            access_token, method, path, json_body=json_body, 
+                            max_retries=max_retries, retry_delay=retry_delay,
+                            current_retry=current_retry + 1,
+                            check_request_status=check_request_status,
+                            is_status_check=is_status_check,
+                            poll_count=poll_count,
+                            max_polls=max_polls
+                        )
+                except Exception as e:
+                    logger.error(f"Error parsing error response: {e}")
+            
+            response.raise_for_status()
+            response_data = response.json()
+            
+            if self._debug:
+                logger.debug("Response data: %s", response_data)
+
+            # Handle command status polling if enabled and not already a status check
+            if check_request_status and isinstance(response_data, dict):
+                command_response = response_data.get("commandResponse")
+                
+                if command_response:
+                    request_time = command_response.get("requestTime")
+                    status = command_response.get("status")
+                    status_url = command_response.get("url")
+                    command_type = command_response.get("type")
+                    
+                    # Check for command failure
+                    if status == CommandResponseStatus.FAILURE.value:
+                        logger.error("Command failed: %s", response_data)
+                        raise RuntimeError(f"Command failed: {response_data}")
+                    
+                    # If we have a success status with body data, return it
+                    if status == CommandResponseStatus.SUCCESS.value and "body" in command_response:
+                        return response_data
+                    
+                    # Check for maximum polls if specified
+                    if max_polls is not None and poll_count >= max_polls:
+                        logger.warning(f"Reached maximum poll count ({max_polls}), returning current response")
+                        return response_data
+                    
+                    # Check for command timeout based on request timestamp if available
+                    if request_time:
+                        request_timestamp = time.mktime(time.strptime(request_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
+                        current_time = time.time()
+                        if current_time >= request_timestamp + self._request_polling_timeout_seconds:
+                            logger.error("Command timed out after %s seconds", self._request_polling_timeout_seconds)
+                            raise RuntimeError(f"Command timed out after {self._request_polling_timeout_seconds} seconds")
+                    
+                    # For "connect" command, we don't continue polling
+                    if command_type == "connect":
+                        return response_data
+                    
+                    # For all other commands in non-success states with status URL, continue polling
+                    if status_url and status != CommandResponseStatus.SUCCESS.value:
+                        logger.debug(f"Command {command_type} in {status} state. Polling status from: {status_url}")
+                        await self._check_request_pause()
+                        
+                        # Continue polling with incremented poll count
+                        return await self.api_request(
+                            access_token,
+                            "GET", 
+                            status_url,
+                            check_request_status=check_request_status,
+                            is_status_check=True,
+                            poll_count=poll_count + 1,
+                            max_polls=max_polls
+                        )
+            
+            return response_data
+        except httpx.HTTPStatusError as e:
+            logger.error("HTTP error: %s", e)
+            # Try to parse the response JSON if possible
+            try:
+                error_body = e.response.json()
+                logger.error("Error details: %s", error_body)
+            except Exception:
+                logger.error("Error response text: %s", e.response.text)
+            raise
+        except Exception as e:
+            logger.error("Request failed: %s", e)
+            raise 

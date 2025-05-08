@@ -27,21 +27,25 @@ async def main():
         "totp_secret": "your_totp_secret"  # Optional
     })
 
-    # Get account vehicles
-    result = await onstar.get_account_vehicles()
-    print(result)
+    try:
+        # Get account vehicles
+        result = await onstar.get_account_vehicles()
+        print(result)
 
-    # Start vehicle
-    result = await onstar.start()
-    print(result)
+        # Start vehicle
+        result = await onstar.start()
+        print(result)
 
-    # Lock doors
-    result = await onstar.lock_door()
-    print(result)
+        # Lock doors
+        result = await onstar.lock_door()
+        print(result)
 
-    # Get vehicle location
-    result = await onstar.location()
-    print(result)
+        # Get vehicle location
+        result = await onstar.location()
+        print(result)
+    finally:
+        # Always close the client when done
+        await onstar.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -57,6 +61,8 @@ if __name__ == "__main__":
 - Charging profile management
 - Vehicle diagnostics
 - Location tracking
+- Non-blocking async I/O for optimal performance
+- Proper resource management
 
 ## Requirements
 
@@ -65,6 +71,7 @@ if __name__ == "__main__":
   - httpx
   - pyjwt
   - pyotp
+  - aiofiles
 
 ## Credits
 
