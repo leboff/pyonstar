@@ -25,13 +25,16 @@ class TestApiModule:
             await get_gm_api_jwt(partial_config)
     
     @pytest.mark.asyncio
-    @patch('onstar.auth.api.GMAuth')
-    @patch('onstar.auth.api.jwt.decode')
+    @patch('pyonstar.auth.api.GMAuth')
+    @patch('pyonstar.auth.api.jwt.decode')
     async def test_get_gm_api_jwt_success(self, mock_jwt_decode, mock_auth_class):
         """Test get_gm_api_jwt with successful authentication."""
         # Setup mock auth instance
         mock_auth = AsyncMock()
         mock_auth_class.return_value = mock_auth
+        
+        # Mock the async load token method
+        mock_auth._load_current_gm_api_token = AsyncMock()
         
         # Configure mock authenticate method
         mock_auth.authenticate.return_value = {
@@ -85,12 +88,15 @@ class TestApiModule:
         assert result["decoded_payload"]["vehs"][0]["vin"] == "TEST12345678901234"
     
     @pytest.mark.asyncio
-    @patch('onstar.auth.api.GMAuth')
+    @patch('pyonstar.auth.api.GMAuth')
     async def test_get_gm_api_jwt_debug_mode(self, mock_auth_class):
         """Test get_gm_api_jwt with debug mode enabled."""
         # Setup mock auth instance
         mock_auth = AsyncMock()
         mock_auth_class.return_value = mock_auth
+        
+        # Mock the async load token method
+        mock_auth._load_current_gm_api_token = AsyncMock()
         
         # Configure authenticate to return a token
         mock_auth.authenticate.return_value = {
@@ -110,7 +116,7 @@ class TestApiModule:
         }
         
         # We don't need to validate the full result again, just verify debug flag was passed
-        with patch('onstar.auth.api.jwt.decode') as mock_jwt_decode:
+        with patch('pyonstar.auth.api.jwt.decode') as mock_jwt_decode:
             mock_jwt_decode.return_value = {"vehs": [{"vin": "TEST12345678901234"}]}
             await get_gm_api_jwt(config, debug=True)
         

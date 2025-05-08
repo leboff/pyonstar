@@ -185,4 +185,228 @@ class CommandFactory:
         if heated_steering_wheel is not None:
             hvac_settings["heatedSteeringWheelEnabled"] = "true" if heated_steering_wheel else "false"
             
-        return {"hvacSettings": hvac_settings} 
+        return {"hvacSettings": hvac_settings}
+
+    @staticmethod
+    def cancel_alert() -> Dict[str, Any]:
+        """Create cancel alert command payload."""
+        return {
+            "cancelAlertRequest": {}
+        }
+    
+    @staticmethod
+    def get_hotspot_info() -> Dict[str, Any]:
+        """Create get hotspot info command payload."""
+        return {
+            "getHotspotInfoRequest": {}
+        }
+    
+    @staticmethod
+    def start(duration: int = 20) -> Dict[str, Any]:
+        """Create remote start command payload.
+        
+        Parameters
+        ----------
+        duration
+            Duration in minutes for the remote start
+        """
+        return {
+            "startRequest": {
+                "duration": duration
+            }
+        }
+    
+    @staticmethod
+    def cancel_start() -> Dict[str, Any]:
+        """Create cancel start command payload."""
+        return {
+            "cancelStartRequest": {}
+        }
+    
+    @staticmethod
+    def send_tbt_route(route_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create send turn-by-turn route command payload.
+        
+        Parameters
+        ----------
+        route_data
+            Route data for the navigation
+        """
+        return {
+            "sendTBTRouteRequest": route_data
+        }
+    
+    @staticmethod
+    def location() -> Dict[str, Any]:
+        """Create location command payload."""
+        return {
+            "locationRequest": {}
+        }
+    
+    @staticmethod
+    def get_charging_profile() -> Dict[str, Any]:
+        """Create get charging profile command payload."""
+        return {
+            "getChargingProfileRequest": {}
+        }
+    
+    @staticmethod
+    def get_commute_schedule() -> Dict[str, Any]:
+        """Create get commute schedule command payload."""
+        return {
+            "getCommuteScheduleRequest": {}
+        }
+    
+    @staticmethod
+    def connect() -> Dict[str, Any]:
+        """Create connect command payload."""
+        return {
+            "connectRequest": {}
+        }
+    
+    @staticmethod
+    def set_commute_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create set commute schedule command payload.
+        
+        Parameters
+        ----------
+        schedule_data
+            Commute schedule data
+        """
+        return {
+            "setCommuteScheduleRequest": schedule_data
+        }
+    
+    @staticmethod
+    def stop_fast_charge() -> Dict[str, Any]:
+        """Create stop fast charge command payload."""
+        return {
+            "stopFastChargeRequest": {}
+        }
+    
+    @staticmethod
+    def create_trip_plan(trip_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create trip plan command payload.
+        
+        Parameters
+        ----------
+        trip_data
+            Trip plan data
+        """
+        return {
+            "createTripPlanRequest": trip_data
+        }
+    
+    @staticmethod
+    def get_trip_plan(trip_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create get trip plan command payload.
+        
+        Parameters
+        ----------
+        trip_id
+            Optional trip ID to retrieve a specific trip plan
+        """
+        request = {}
+        if trip_id:
+            request["tripId"] = trip_id
+            
+        return {
+            "getTripPlanRequest": request
+        }
+    
+    @staticmethod
+    def get_hotspot_status() -> Dict[str, Any]:
+        """Create get hotspot status command payload."""
+        return {
+            "getHotspotStatusRequest": {}
+        }
+    
+    @staticmethod
+    def set_hotspot_info(ssid: str, passphrase: str) -> Dict[str, Any]:
+        """Create set hotspot info command payload.
+        
+        Parameters
+        ----------
+        ssid
+            WiFi SSID
+        passphrase
+            WiFi passphrase
+        """
+        return {
+            "setHotspotInfoRequest": {
+                "ssid": ssid,
+                "passphrase": passphrase
+            }
+        }
+    
+    @staticmethod
+    def disable_hotspot() -> Dict[str, Any]:
+        """Create disable hotspot command payload."""
+        return {
+            "disableHotspotRequest": {}
+        }
+    
+    @staticmethod
+    def enable_hotspot() -> Dict[str, Any]:
+        """Create enable hotspot command payload."""
+        return {
+            "enableHotspotRequest": {}
+        }
+    
+    @staticmethod
+    def stop_charge() -> Dict[str, Any]:
+        """Create stop charge command payload."""
+        return {
+            "stopChargeRequest": {}
+        }
+    
+    @staticmethod
+    def get_charger_power_level() -> Dict[str, Any]:
+        """Create get charger power level command payload."""
+        return {
+            "getChargerPowerLevelRequest": {}
+        }
+    
+    @staticmethod
+    def set_charger_power_level(level: int) -> Dict[str, Any]:
+        """Create set charger power level command payload.
+        
+        Parameters
+        ----------
+        level
+            Charger power level
+        """
+        return {
+            "setChargerPowerLevelRequest": {
+                "level": level
+            }
+        }
+    
+    @staticmethod
+    def get_rate_schedule() -> Dict[str, Any]:
+        """Create get rate schedule command payload."""
+        return {
+            "getRateScheduleRequest": {}
+        }
+    
+    @staticmethod
+    def set_rate_schedule(schedule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create set rate schedule command payload.
+        
+        Parameters
+        ----------
+        schedule_data
+            Rate schedule data
+        """
+        return {
+            "setRateScheduleRequest": schedule_data
+        }
+    
+    @staticmethod
+    def get_last_trip_electric_economy() -> Dict[str, Any]:
+        """Create command payload to get last trip electric economy information."""
+        return {
+            "diagnosticsRequest": {
+                "diagnosticItem": ["LAST TRIP ELECTRIC ECON"]
+            }
+        } 

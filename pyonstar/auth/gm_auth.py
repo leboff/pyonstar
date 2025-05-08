@@ -11,6 +11,7 @@ from typing import Dict, Optional, Tuple, Union, Any
 import httpx
 import pyotp
 import jwt  # PyJWT
+import aiofiles
 
 from .constants import (
     CLIENT_ID,
@@ -59,8 +60,8 @@ class GMAuth:
         # Default token endpoint (may be updated after discovery)
         self._token_endpoint: str = FALLBACK_TOKEN_ENDPOINT
 
-        # Attempt to load an existing GM token from disk immediately
-        self._load_current_gm_api_token()
+        # Skip token loading in constructor since it's now async
+        # We'll load tokens on-demand during authenticate()
 
         # OIDC metadata (fetched dynamically)
         self._oidc_metadata: Optional[Dict] = None
@@ -77,6 +78,16 @@ class GMAuth:
 
         if self.debug:
             logger.debug("[GMAuth] Starting authentication flow…")
+            
+        # Ensure GM token is loaded if available
+        if self._current_gm_token is None:
+            await self._load_current_gm_api_token()
+            
+        # Check if current GM token is valid before loading MS token
+        if self._current_gm_token and is_token_valid(self._current_gm_token, TOKEN_REFRESH_BUFFER):
+            if self.debug:
+                logger.debug("[GMAuth] Using cached GM API token")
+            return self._current_gm_token
 
         token_set = await self._load_ms_token()
         if token_set is not False:
@@ -126,7 +137,7 @@ class GMAuth:
         token_set = await self._fetch_ms_token(auth_code, code_verifier)
 
         # ── Persist ──
-        self._save_tokens(token_set)
+        await self._save_tokens(token_set)
         return token_set
 
     # ------------------------------------------------------------------
@@ -454,29 +465,31 @@ class GMAuth:
 
         self._current_gm_token = gm_token
         # Persist both sets
-        self._save_tokens(token_set)
+        await self._save_tokens(token_set)
         return gm_token
 
     # ------------------------------------------------------------------
     # Token persistence helpers
     # ------------------------------------------------------------------
 
-    def _save_tokens(self, token_set: TokenSet):
+    async def _save_tokens(self, token_set: TokenSet):
         # MS tokens
-        with self._ms_token_path.open("w", encoding="utf-8") as fp:
-            json.dump(token_set, fp)
+        async with aiofiles.open(self._ms_token_path, "w", encoding="utf-8") as fp:
+            await fp.write(json.dumps(token_set))
         # GM tokens
         if self._current_gm_token:
-            with self._gm_token_path.open("w", encoding="utf-8") as fp:
-                json.dump(self._current_gm_token, fp)
+            async with aiofiles.open(self._gm_token_path, "w", encoding="utf-8") as fp:
+                await fp.write(json.dumps(self._current_gm_token))
         if self.debug:
             logger.debug(f"[GMAuth] Tokens persisted to → {self._ms_token_path.parent}")
 
-    def _load_current_gm_api_token(self):
+    async def _load_current_gm_api_token(self):
         if not self._gm_token_path.exists():
             return
         try:
-            gm_token: GMAPITokenResponse = json.loads(self._gm_token_path.read_text())  # type: ignore[arg-type]
+            async with aiofiles.open(self._gm_token_path, "r", encoding="utf-8") as fp:
+                content = await fp.read()
+                gm_token: GMAPITokenResponse = json.loads(content)  # type: ignore[arg-type]
             decoded: DecodedPayload = jwt.decode(
                 gm_token["access_token"], options={"verify_signature": False, "verify_aud": False}
             )  # type: ignore[arg-type]
@@ -496,7 +509,9 @@ class GMAuth:
         if not self._ms_token_path.exists():
             return False
         try:
-            stored: TokenSet = json.loads(self._ms_token_path.read_text())  # type: ignore[arg-type]
+            async with aiofiles.open(self._ms_token_path, "r", encoding="utf-8") as fp:
+                content = await fp.read()
+                stored: TokenSet = json.loads(content)  # type: ignore[arg-type]
             # Validate expiry & ownership
             decoded = jwt.decode(
                 stored["access_token"], options={"verify_signature": False, "verify_aud": False}
@@ -514,7 +529,7 @@ class GMAuth:
                     logger.debug("[GMAuth] MS access_token expired → attempting refresh…")
                 try:
                     refreshed = await self._refresh_ms_token(stored["refresh_token"])
-                    self._save_tokens(refreshed)
+                    await self._save_tokens(refreshed)
                     return refreshed
                 except Exception as exc:
                     if self.debug:
