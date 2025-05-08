@@ -941,7 +941,8 @@ class TestOnStarClient:
             mock_api_client_class.assert_called_once_with(
                 request_polling_timeout_seconds=120,
                 request_polling_interval_seconds=10,
-                debug=True
+                debug=True,
+                http_client=None
             )
             
             # Verify that the client has the api_client attribute

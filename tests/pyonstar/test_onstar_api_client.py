@@ -14,11 +14,13 @@ from pyonstar.types import CommandResponseStatus
 @pytest.fixture
 def api_client():
     """Create an OnStarAPIClient instance."""
-    return OnStarAPIClient(
+    # Create the client
+    client = OnStarAPIClient(
         request_polling_timeout_seconds=30,
         request_polling_interval_seconds=2,
         debug=False
     )
+    return client
 
 
 @pytest.fixture
@@ -70,16 +72,17 @@ class TestOnStarAPIClient:
             request=httpx.Request("GET", "https://example.com")
         )
 
-        # Mock the request method directly
-        with patch('httpx.AsyncClient.request', return_value=mock_response):
-            result = await api_client.api_request(
-                access_token="test_token",
-                method="GET",
-                path="/test/path"
-            )
+        # Mock the client's request method directly
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        result = await api_client.api_request(
+            access_token="test_token",
+            method="GET",
+            path="/test/path"
+        )
 
-            # Verify response was returned
-            assert result == mock_command_response
+        # Verify response was returned
+        assert result == mock_command_response
 
     @pytest.mark.asyncio
     async def test_api_request_absolute_url(self, api_client, mock_command_response):
@@ -91,16 +94,17 @@ class TestOnStarAPIClient:
             request=httpx.Request("GET", "https://example.com")
         )
 
-        # Mock the request method directly
-        with patch('httpx.AsyncClient.request', return_value=mock_response):
-            result = await api_client.api_request(
-                access_token="test_token",
-                method="GET",
-                path="https://example.com/api/test/path"
-            )
+        # Mock the client's request method directly
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        result = await api_client.api_request(
+            access_token="test_token",
+            method="GET",
+            path="https://example.com/api/test/path"
+        )
 
-            # Verify response was returned
-            assert result == mock_command_response
+        # Verify response was returned
+        assert result == mock_command_response
 
     @pytest.mark.asyncio
     async def test_api_request_with_json_body(self, api_client, mock_command_response):
@@ -112,18 +116,19 @@ class TestOnStarAPIClient:
             request=httpx.Request("POST", "https://example.com")
         )
 
-        # Mock the request method directly
-        with patch('httpx.AsyncClient.request', return_value=mock_response):
-            json_body = {"test": "value"}
-            result = await api_client.api_request(
-                access_token="test_token",
-                method="POST",
-                path="/test/path",
-                json_body=json_body
-            )
+        # Mock the client's request method directly
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        json_body = {"test": "value"}
+        result = await api_client.api_request(
+            access_token="test_token",
+            method="POST",
+            path="/test/path",
+            json_body=json_body
+        )
 
-            # Verify response was returned
-            assert result == mock_command_response
+        # Verify response was returned
+        assert result == mock_command_response
 
     @pytest.mark.asyncio
     async def test_api_request_polling(self, api_client, mock_polling_response, mock_command_response):
@@ -143,14 +148,14 @@ class TestOnStarAPIClient:
 
         # Mock the request method with different responses
         request_mock = AsyncMock(side_effect=[mock_initial_response, mock_polling_response_obj])
+        api_client._client.request = request_mock
         
         # Setup a fixed "current time" that's shortly after the request time to avoid timeout
         # This mocks time.time() to return a value within the polling timeout window
         current_time = time.time()
         
         # Mock request and asyncio.sleep
-        with patch('httpx.AsyncClient.request', request_mock), \
-             patch('asyncio.sleep', AsyncMock()) as mock_sleep, \
+        with patch('asyncio.sleep', AsyncMock()) as mock_sleep, \
              patch('time.time', return_value=current_time):
             result = await api_client.api_request(
                 access_token="test_token",
@@ -185,14 +190,15 @@ class TestOnStarAPIClient:
         
         mock_response.raise_for_status = raise_for_status
 
-        # Mock the request method
-        with patch('httpx.AsyncClient.request', return_value=mock_response):
-            with pytest.raises(httpx.HTTPStatusError):
-                await api_client.api_request(
-                    access_token="test_token",
-                    method="GET",
-                    path="/test/path"
-                )
+        # Mock the client's request method directly
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        with pytest.raises(httpx.HTTPStatusError):
+            await api_client.api_request(
+                access_token="test_token",
+                method="GET",
+                path="/test/path"
+            )
 
     @pytest.mark.asyncio
     async def test_api_request_retry_duplicate(self, api_client, mock_command_response):
@@ -210,22 +216,18 @@ class TestOnStarAPIClient:
             request=error_request
         )
         
-        # Override raise_for_status on error response
-        def error_raise_for_status():
-            raise httpx.HTTPStatusError("500 Internal Server Error", request=error_request, response=error_response)
-        
-        error_response.raise_for_status = error_raise_for_status
-        
-        # Create success response
+        # Success response for the retry
         success_response = httpx.Response(
             status_code=200,
             content=json.dumps(mock_command_response).encode(),
             request=httpx.Request("POST", "https://example.com")
         )
 
-        # Mock request with different responses and asyncio.sleep
-        with patch('httpx.AsyncClient.request', AsyncMock(side_effect=[error_response, success_response])), \
-             patch('asyncio.sleep', AsyncMock()) as mock_sleep:
+        # Mock the client's request method with a side effect
+        api_client._client.request = AsyncMock(side_effect=[error_response, success_response])
+        
+        # Mock asyncio.sleep
+        with patch('asyncio.sleep', AsyncMock()) as mock_sleep:
             result = await api_client.api_request(
                 access_token="test_token",
                 method="POST",
@@ -249,22 +251,18 @@ class TestOnStarAPIClient:
     #         time.gmtime(time.time() - 60)  # 60 seconds ago
     #     )
     #     mock_polling_response["commandResponse"]["requestTime"] = past_time
-        
-    #     # Create real httpx response
+    #     
+    #     # Create a response with the polling response
     #     mock_response = httpx.Response(
     #         status_code=200,
     #         content=json.dumps(mock_polling_response).encode(),
     #         request=httpx.Request("POST", "https://example.com")
     #     )
-
-    #     # Use a fixed current time that's more than the timeout after the request time
-    #     current_time = time.time()  # This is already > 60 seconds after the request time
-
-    #     # Mock request and time.time
+    #     
+    #     # Mock the request method
     #     with patch('httpx.AsyncClient.request', return_value=mock_response), \
-    #          patch('time.time', return_value=current_time):
-    #         # The api_client has a 30 second timeout by default in the fixture
-    #         with pytest.raises(RuntimeError, match="Command timed out after 30 seconds"):
+    #          patch('asyncio.sleep', AsyncMock()):
+    #         with pytest.raises(RuntimeError, match="Command timed out"):
     #             await api_client.api_request(
     #                 access_token="test_token",
     #                 method="POST",
@@ -274,28 +272,69 @@ class TestOnStarAPIClient:
 
     @pytest.mark.asyncio
     async def test_max_polls_limit(self, api_client, mock_polling_response):
-        """Test honoring max_polls parameter."""
-        # Create real httpx response that always returns in-progress state
+        """Test respecting the max_polls limit."""
+        # Create a response with the polling response
         mock_response = httpx.Response(
             status_code=200,
             content=json.dumps(mock_polling_response).encode(),
             request=httpx.Request("POST", "https://example.com")
         )
-
-        # Setup a fixed time that's within the timeout period
-        current_time = time.time()
-
-        # Mock request and asyncio.sleep
-        with patch('httpx.AsyncClient.request', return_value=mock_response), \
-             patch('asyncio.sleep', AsyncMock()), \
-             patch('time.time', return_value=current_time):
+        
+        # Mock the client's request method to always return the same polling response
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        # Mock asyncio.sleep
+        with patch('asyncio.sleep', AsyncMock()):
             result = await api_client.api_request(
                 access_token="test_token",
                 method="POST",
                 path="/test/path",
                 check_request_status=True,
-                max_polls=1  # Only allow one poll attempt
+                max_polls=2  # Set max polls to 2
             )
+            
+            # Verify request was called 3 times (initial + 2 polls)
+            assert api_client._client.request.call_count == 3
+            
+            # Verify result is from the final polling response
+            assert result == mock_polling_response
 
-            # Verify the result is the polling response (didn't wait for success)
-            assert result == mock_polling_response 
+    @pytest.mark.asyncio
+    async def test_connect_command_no_polling(self, api_client):
+        """Test that connect commands don't trigger polling."""
+        # Create response for a connect command
+        connect_response = {
+            "commandResponse": {
+                "status": "inProgress",  # Would normally trigger polling
+                "type": "connect",       # But not for connect commands
+                "requestTime": "2023-01-01T00:00:00.000Z"
+            }
+        }
+        
+        # Create a response with the connect response
+        mock_response = httpx.Response(
+            status_code=200,
+            content=json.dumps(connect_response).encode(),
+            request=httpx.Request("POST", "https://example.com")
+        )
+        
+        # Mock the client's request method
+        api_client._client.request = AsyncMock(return_value=mock_response)
+        
+        # Set up a mock time that's within the timeout window for the old request time
+        current_time = time.mktime(time.strptime("2023-01-01T00:00:10.000Z", "%Y-%m-%dT%H:%M:%S.%fZ"))
+        
+        # Mock the time function to avoid timeout
+        with patch('time.time', return_value=current_time):
+            result = await api_client.api_request(
+                access_token="test_token",
+                method="POST",
+                path="/test/path",
+                check_request_status=True
+            )
+            
+            # Verify request was only called once (no polling)
+            assert api_client._client.request.call_count == 1
+            
+            # Verify result is the connect response
+            assert result == connect_response 

@@ -61,7 +61,7 @@ class TestApiModule:
         result = await get_gm_api_jwt(config)
         
         # Verify GMAuth was constructed with correct arguments
-        mock_auth_class.assert_called_once_with(config, debug=False)
+        mock_auth_class.assert_called_once_with(config, debug=False, http_client=None)
         
         # Verify authenticate was called
         mock_auth.authenticate.assert_called_once()
@@ -121,4 +121,4 @@ class TestApiModule:
             await get_gm_api_jwt(config, debug=True)
         
         # Verify GMAuth was constructed with debug=True
-        mock_auth_class.assert_called_once_with(config, debug=True) 
+        mock_auth_class.assert_called_once_with(config, debug=True, http_client=None) 
