@@ -166,8 +166,9 @@ class OnStar:
             # Use the async get_gm_api_jwt function
             res = await get_gm_api_jwt(
                 self._auth.config,  # Pass GMAuth's config directly
-                self._auth.config.get("debug", False),
+                debug=self._auth.debug,  # Pass the debug flag from GMAuth instance
                 http_client=self._http_client,  # Pass the HTTP client
+                force_refresh=force  # Pass force parameter to ignore cached tokens
             )
             self._token_resp = cast(Dict[str, Any], res["token"])
             self._decoded_payload = cast(DecodedPayload, res["decoded_payload"])

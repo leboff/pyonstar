@@ -109,26 +109,36 @@ class GMAuth:
     # Public API
     # ---------------------------------------------------------------------
 
-    async def authenticate(self) -> GMAPITokenResponse:
-        """Return a *valid* GM API OAuth token, performing auth flow when required."""
+    async def authenticate(self, force_refresh: bool = False) -> GMAPITokenResponse:
+        """Return a *valid* GM API OAuth token, performing auth flow when required.
+        
+        Parameters
+        ----------
+        force_refresh
+            When True, forces a new GM token exchange even if current token is valid
+        """
 
         if self.debug:
             logger.debug("[GMAuth] Starting authentication flow…")
             
-        # Ensure GM token is loaded if available
-        if self._current_gm_token is None:
+        # Ensure GM token is loaded if available and not forcing refresh
+        if self._current_gm_token is None and not force_refresh:
             await self._load_current_gm_api_token()
             
-        # Check if current GM token is valid before loading MS token
-        if self._current_gm_token and is_token_valid(self._current_gm_token, TOKEN_REFRESH_BUFFER):
+        # Check if current GM token is valid (unless we're forcing a refresh)
+        if not force_refresh and self._current_gm_token and is_token_valid(self._current_gm_token, TOKEN_REFRESH_BUFFER):
             if self.debug:
                 logger.debug("[GMAuth] Using cached GM API token")
             return self._current_gm_token
 
+        # Try to use existing MS token (even when forcing refresh)
         token_set = await self._load_ms_token()
         if token_set is not False:
             if self.debug:
-                logger.debug("[GMAuth] Successfully loaded cached MS tokens → exchanging for GM token…")
+                if force_refresh:
+                    logger.debug("[GMAuth] Force refresh requested, exchanging MS tokens for new GM token...")
+                else:
+                    logger.debug("[GMAuth] Successfully loaded cached MS tokens → exchanging for GM token…")
             return await self._get_gm_api_token(token_set)
 
         # Full authentication required
