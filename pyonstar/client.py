@@ -153,9 +153,15 @@ class OnStar:
             return True
         return token.get("expires_at", 0) < int(time.time()) + TOKEN_REFRESH_WINDOW_SECONDS
 
-    async def _ensure_token(self) -> None:
-        """Ensure a valid token is available, refreshing if necessary."""
-        if self._needs_token_refresh(self._token_resp):
+    async def _ensure_token(self, force: bool = False) -> None:
+        """Ensure a valid token is available, refreshing if necessary.
+        
+        Parameters
+        ----------
+        force
+            When True, forces a token refresh even if the current token is still valid.
+        """
+        if force or self._needs_token_refresh(self._token_resp):
             logger.debug("Retrieving new GM auth token…")
             # Use the async get_gm_api_jwt function
             res = await get_gm_api_jwt(
@@ -183,10 +189,11 @@ class OnStar:
         json_body: Any | None = None,
         max_retries: int = 1,
         check_request_status: bool | None = None,
-        max_polls: int | None = None
+        max_polls: int | None = None,
+        force_token_refresh: bool = False
     ) -> Dict[str, Any]:
         """Make an authenticated request to the OnStar API."""
-        await self._ensure_token()
+        await self._ensure_token(force=force_token_refresh)
         
         should_check_status = check_request_status if check_request_status is not None else self._check_request_status
         
@@ -467,4 +474,27 @@ class OnStar:
     async def close(self):
         """Close the API client and release resources."""
         if hasattr(self, '_api_client'):
-            await self._api_client.close() 
+            await self._api_client.close()
+
+    # ------------------------------------------------------------------
+    # Authentication methods
+    # ------------------------------------------------------------------
+
+    async def force_token_refresh(self) -> bool:
+        """Force a refresh of the access token regardless of expiration status.
+        
+        This can be useful when working with failed API requests or when you suspect
+        the token might have been invalidated on the server side.
+        
+        Returns
+        -------
+        bool
+            True if token was successfully refreshed, False otherwise
+        """
+        try:
+            logger.debug("Forcing token refresh...")
+            await self._ensure_token(force=True)
+            return True
+        except Exception as e:
+            logger.error(f"Error forcing token refresh: {e}")
+            return False 
