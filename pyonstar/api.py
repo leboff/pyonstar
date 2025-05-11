@@ -63,11 +63,7 @@ class OnStarAPIClient:
         path: str, 
         *, 
         json_body: Any | None = None,
-        max_retries: int = 1,
-        retry_delay: float = 2.0,
-        current_retry: int = 0,
         check_request_status: bool = True,
-        is_status_check: bool = False,
         poll_count: int = 0,
         max_polls: int | None = None
     ) -> Dict[str, Any]:
@@ -83,16 +79,8 @@ class OnStarAPIClient:
             API endpoint path (will be appended to API_BASE) or full URL
         json_body
             Optional JSON payload to send with the request
-        max_retries
-            Maximum number of retry attempts
-        retry_delay
-            Delay in seconds between retries
-        current_retry
-            Current retry attempt (used internally)
         check_request_status
             Whether to check and poll for command status completion
-        is_status_check
-            Whether this is a status check request (used internally)
         poll_count
             Current poll attempt count (used internally)
         max_polls
@@ -129,26 +117,6 @@ class OnStarAPIClient:
             # Log response body on error
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
-            
-            # Check for duplicate request error
-            if response.status_code == 500 and current_retry < max_retries:
-                try:
-                    error_body = response.json()
-                    if (error_body.get("error", {}).get("code") == "ONS-300" and
-                        "Duplicate vehicle request" in error_body.get("error", {}).get("description", "")):
-                        logger.warning(f"Duplicate request detected, retrying in {retry_delay} seconds...")
-                        await asyncio.sleep(retry_delay)
-                        return await self.api_request(
-                            access_token, method, path, json_body=json_body, 
-                            max_retries=max_retries, retry_delay=retry_delay,
-                            current_retry=current_retry + 1,
-                            check_request_status=check_request_status,
-                            is_status_check=is_status_check,
-                            poll_count=poll_count,
-                            max_polls=max_polls
-                        )
-                except Exception as e:
-                    logger.error(f"Error parsing error response: {e}")
             
             response.raise_for_status()
             response_data = response.json()
@@ -203,7 +171,6 @@ class OnStarAPIClient:
                             "GET", 
                             status_url,
                             check_request_status=check_request_status,
-                            is_status_check=True,
                             poll_count=poll_count + 1,
                             max_polls=max_polls
                         )

@@ -967,7 +967,6 @@ class TestOnStarClient:
             "POST",
             "/test/path",
             json_body={"test": "value"},
-            max_retries=2,
             check_request_status=True,
             max_polls=5
         )
@@ -978,7 +977,6 @@ class TestOnStarClient:
             "POST",
             "/test/path",
             json_body={"test": "value"},
-            max_retries=2,
             check_request_status=True,
             max_polls=5
         )

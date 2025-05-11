@@ -188,7 +188,6 @@ class OnStar:
         path: str, 
         *, 
         json_body: Any | None = None,
-        max_retries: int = 1,
         check_request_status: bool | None = None,
         max_polls: int | None = None,
         force_token_refresh: bool = False
@@ -203,7 +202,6 @@ class OnStar:
             method,
             path,
             json_body=json_body,
-            max_retries=max_retries,
             check_request_status=should_check_status,
             max_polls=max_polls
         )
